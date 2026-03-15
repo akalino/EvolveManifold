@@ -69,7 +69,7 @@ def checkpoint_paths_for_run(_run_dir):
     return files
 
 
-def measure_run(_run_dir):
+def measure_run(_run_dir, _too_big=False):
     parts = _run_dir.split(os.sep)
     experiment = parts[-3]
     mechanism = parts[-2]
@@ -87,9 +87,11 @@ def measure_run(_run_dir):
 
         if i == 0:
             d = pdist(x)
-            qs = np.quantile(d, [0.05, 0.1, 0.5, 0.75, 0.95, 0.99])
-            print(qs)
-            max_edge_len = qs[0]
+            qs = np.quantile(d, [0.01, 0.05, 0.1, 0.5, 0.75, 0.95, 0.99])
+            if _too_big:
+                max_edge_len = qs[0]
+            else:
+                max_edge_len = qs[1]
             print("[VR MAX EDGE LENGTH] {}".format(max_edge_len))
             i += 1
 
@@ -146,10 +148,17 @@ def main(_root_dir="evolve_checkpoints",
             print(f"[{i}/{len(run_dirs)}] skipping existing {out_path}")
             continue
 
-        print(f"[{i}/{len(run_dirs)}] measuring {run_dir}")
-        df_run = measure_run(run_dir)
-        dfs.append(df_run)
-        df_run.to_csv(out_path, index=False)
+        if "nonlinear_to_paraboloid" in run_dir and "spiked_gaussian" in run_dir and "mp1.0" in run_dir:
+            print(f"retrying {run_dir} for now")
+            print(f"[{i}/{len(run_dirs)}] measuring {run_dir}")
+            df_run = measure_run(run_dir, True)
+            dfs.append(df_run)
+            df_run.to_csv(out_path, index=False)
+        else:
+            print(f"[{i}/{len(run_dirs)}] measuring {run_dir}")
+            df_run = measure_run(run_dir)
+            dfs.append(df_run)
+            df_run.to_csv(out_path, index=False)
 
     if dfs:
         df_all = pd.concat(dfs, ignore_index=True)

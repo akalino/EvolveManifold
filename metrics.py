@@ -52,3 +52,6 @@ def total_persistence_h1(diagram_h1):
     if len(lifetimes) == 0:
         return 0.0
     return float(np.sum(lifetimes))
+
+def mean_xy_radius(x):
+    return float(np.mean(np.linalg.norm(x[:, :2], axis=1)))

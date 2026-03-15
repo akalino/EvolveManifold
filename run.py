@@ -12,6 +12,9 @@ from linear_mechanic import LinearSpectralParams, step_linear_spectral
 from nonlinear_mechanic import NonLinearParams, step_nonlinear_projection
 from projectors import (proj_to_k_plane, proj_to_sphere,
                         proj_to_torus, proj_to_paraboloid)
+from topological_mechanisms import (HoleFillParams, PinchParams, BridgeParams,
+                                    step_hole_fill, step_loop_pinch,
+                                    step_bridge_across_hole)
 from trajectory import dynamics
 from utils import random_orthogonal, rotate_cloud
 
@@ -30,6 +33,24 @@ def get_mechanism_params(_mechanism, _severity):
         if _severity == "med":
             return {"alpha_0": 1.0, "alpha_t": 0.2}
         return {"alpha_0": 1.0, "alpha_t": 0.05}
+
+    if _mechanism == "hole_fill":
+        if _severity == "weak":
+            return {"r0": 0.0, "rt": 0.2}
+        if _severity == "med":
+            return {"r0": 0.0, "rt": 0.8}
+    if _mechanism == "loop_pinch":
+        if _severity == "weak":
+            return {"strength_0": 0.0, "strength_t": 0.3}
+        if _severity == "med":
+            return {"strength_0": 0.0, "strength_t": 0.6}
+        return {"strength_0": 0.0, "strength_t": 1.0}
+    if _mechanism == "bridge_across_hole":
+        if _severity == "weak":
+            return {"strength_0": 0.0, "strength_t": 0.3}
+        if _severity == "med":
+            return {"strength_0": 0.0, "strength_t": 0.6}
+        return {"strength_0": 0.0, "strength_t": 1.0}
 
     if _severity == "weak":
         return {"eps_0": 0.5, "eps_t": 0.05, "relax": 0.2}
@@ -51,16 +72,16 @@ def build_experiments(_n, _d, _num_steps, _checkpoint_every, _seed, _k):
     """
     geometries = [
         #"kcube",
-        #"kplane",
-        "sphere",
-        #"torus",
-        "swiss",
+        "kplane",
+        #"sphere",
+        "torus",
+        #"swiss",
         #"paraboloid",
-        "spiked_gaussian",
+        #"spiked_gaussian",
     ]
 
     mechanisms = [
-        #"linear_to_kplane",
+        "linear_to_kplane",
         "nonlinear_to_kplane",
         #"nonlinear_to_sphere",
         #"nonlinear_to_sphere",
@@ -116,6 +137,38 @@ def build_step(_exp):
                 alpha_t=_exp.mechanism_params["alpha_t"],
                 noise=_exp.noise,
                 schedule=_exp.schedule,
+            ),
+            _exp.total_steps,
+        )
+    if _exp.mechanism == "hole_fill":
+        return step_hole_fill(
+            HoleFillParams(
+                r0=_exp.mechanism_params["r0"],
+                rt=_exp.mechanism_params["rt"],
+                schedule=_exp.schedule,
+                noise=_exp.noise,
+            ),
+            _exp.total_steps,
+        )
+
+    if _exp.mechanism == "loop_pinch":
+        return step_loop_pinch(
+            PinchParams(
+                strength_0=_exp.mechanism_params["strength_0"],
+                strength_t=_exp.mechanism_params["strength_t"],
+                schedule=_exp.schedule,
+                noise=_exp.noise,
+            ),
+            _exp.total_steps,
+        )
+
+    if _exp.mechanism == "bridge_across_hole":
+        return step_bridge_across_hole(
+            BridgeParams(
+                strength_0=_exp.mechanism_params["strength_0"],
+                strength_t=_exp.mechanism_params["strength_t"],
+                schedule=_exp.schedule,
+                noise=_exp.noise,
             ),
             _exp.total_steps,
         )
