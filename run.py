@@ -38,7 +38,8 @@ def get_mechanism_params(_mechanism, _severity):
         if _severity == "weak":
             return {"r0": 0.0, "rt": 0.2}
         if _severity == "med":
-            return {"r0": 0.0, "rt": 0.8}
+            return {"r0": 0.0, "rt": 0.5}
+        return {"r0": 0.0, "rt": 0.8}
     if _mechanism == "loop_pinch":
         if _severity == "weak":
             return {"strength_0": 0.0, "strength_t": 0.3}
@@ -72,21 +73,21 @@ def build_experiments(_n, _d, _num_steps, _checkpoint_every, _seed, _k):
     """
     geometries = [
         #"kcube",
-        "kplane",
+        #"kplane",
         #"sphere",
-        "torus",
+        #"torus",
         #"swiss",
         #"paraboloid",
-        #"spiked_gaussian",
+        "spiked_gaussian",
     ]
 
     mechanisms = [
         "linear_to_kplane",
-        "nonlinear_to_kplane",
-        #"nonlinear_to_sphere",
+        #"nonlinear_to_kplane",
         #"nonlinear_to_sphere",
         #"nonlinear_to_torus",
-        "nonlinear_to_paraboloid",
+        #"nonlinear_to_paraboloid",
+        #"hole_fill"
     ]
 
     schedules = ["linear", "exponential", "sigmoid"]
@@ -236,6 +237,8 @@ def run_experiment(_exp):
 
     model_name = (
         f"{_exp.base_geometry}"
+        f"_n{_exp.n}"
+        f"_d{_exp.d}"
         f"__{_exp.schedule}"
         f"__{_exp.severity}"
         f"__mp{_exp.mover_frac}"
@@ -295,4 +298,4 @@ def run_all(_n, _d, _num_steps, _checkpoint_every, _seed=None, _k=8):
 
 
 if __name__ == "__main__":
-    run_all(1000, 10, 50, 2, _seed=17, _k=4)
+    run_all(2000, 50, 50, 2, _seed=17, _k=4)

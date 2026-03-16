@@ -55,3 +55,32 @@ def total_persistence_h1(diagram_h1):
 
 def mean_xy_radius(x):
     return float(np.mean(np.linalg.norm(x[:, :2], axis=1)))
+
+
+def betti_curve_from_diagram(_diagram, _grid):
+    dgm = np.asarray(_diagram, dtype=float)
+    grid = np.asarray(_grid, dtype=float)
+
+    if dgm.size == 0:
+        return np.zeros_like(grid, dtype=float)
+
+    births = dgm[:, 0][:, None]
+    deaths = dgm[:, 1][:, None]
+    alive = (births <= grid[None, :]) & (grid[None, :] < deaths)
+    return alive.sum(axis=0).astype(float)
+
+
+def betti_curve_area(_diagram, _grid):
+    curve = betti_curve_from_diagram(_diagram, _grid)
+    return float(np.trapz(curve, x=_grid))
+
+
+def betti_curve_peak(_diagram, _grid):
+    curve = betti_curve_from_diagram(_diagram, _grid)
+    return float(curve.max()) if len(curve) > 0 else 0.0
+
+
+def betti_curve_change(_diagram, _ref_curve, _grid):
+    curve = betti_curve_from_diagram(_diagram, _grid)
+    return float(np.trapz(np.abs(curve - _ref_curve), x=_grid))
+
