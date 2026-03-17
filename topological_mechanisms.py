@@ -1,5 +1,6 @@
 """Mechanisms to force topological collapse"""
 import numpy as np
+from dataclasses import dataclass
 
 from schedulers import get_schedule_value
 

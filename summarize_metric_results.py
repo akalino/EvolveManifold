@@ -9,8 +9,11 @@ import pandas as pd
 
 
 FILE_RE = re.compile(
+    r"(?P<ph_mode>[^_]+(?:_[^_]+)*)-"
     r"(?P<mechanism>[^_]+(?:_[^_]+)*)__"
-    r"(?P<geometry>[^_]+(?:_[^_]+)*)__"
+    r"(?P<geometry>[^_]+(?:_[^_]+)*)_"
+    r"n(?P<n>\d+)_"
+    r"d(?P<d>\d+)__"
     r"(?P<schedule>[^_]+)__"
     r"(?P<severity>[^_]+)__"
     r"mp(?P<mover_frac>[0-9.]+)__"
@@ -26,6 +29,8 @@ def parse_metadata_from_filename(path):
         return None
 
     out = m.groupdict()
+    out["n"] = int(out["n"])
+    out["d"] = int(out["d"])
     out["mover_frac"] = float(out["mover_frac"])
     out["noise"] = float(out["noise"])
     out["seed"] = int(out["seed"])
@@ -71,6 +76,25 @@ def normalize_metric_direction(df):
             df["collapse_top_k_variance_fraction"] = (
                 (df["top_k_variance_fraction"] - x0) / denom
             )
+    if "betti_curve_area_h1" in df.columns:
+        x0 = df["betti_curve_area_h1"].iloc[0]
+        if pd.notna(x0) and x0 != 0:
+            df["collapse_betti_curve_area_h1"] = (
+                1.0 - df["betti_curve_area_h1"] / x0
+            )
+    if "betti_curve_peak_h1" in df.columns:
+        x0 = df["betti_curve_peak_h1"].iloc[0]
+        if pd.notna(x0) and x0 != 0:
+            df["collapse_betti_curve_peak_h1"] = (
+                1.0 - df["betti_curve_peak_h1"] / x0
+            )
+    if "betti_curve_change_h1" in df.columns:
+        x0 = df["betti_curve_change_h1"].iloc[0]
+        if pd.notna(x0):
+            if x0 == 0:
+                df["collapse_betti_curve_change_h1"] = df["betti_curve_change_h1"]
+            else:
+                df["collapse_betti_curve_change_h1"] = df["betti_curve_change_h1"] / x0
 
     return df
 
@@ -87,6 +111,9 @@ def summarize_one_run(df):
     rowf = df.iloc[-1]
 
     out = {
+        "ph_mode": row0["ph_mode"],
+        "n": row0["n"],
+        "d": row0["d"],
         "mechanism": row0["mechanism"],
         "geometry": row0["geometry"],
         "schedule": row0["schedule"],
@@ -105,6 +132,9 @@ def summarize_one_run(df):
         "mean_pairwise_distance",
         "projection_residual",
         "total_persistence_h1",
+        "betti_curve_area_h1",
+        "betti_curve_peak_h1",
+        "betti_curve_change_h1"
     ]
 
     for col in metric_cols:
@@ -130,6 +160,9 @@ def summarize_one_run(df):
         "collapse_mean_pairwise_distance",
         "collapse_projection_residual",
         "collapse_total_persistence_h1",
+        "collapse_betti_curve_area_h1",
+        "collapse_betti_curve_peak_h1",
+        "collapse_betti_curve_change_h1"
     ]
 
     for col in collapse_cols:
@@ -194,6 +227,9 @@ def load_all_results(input_dir):
 
 def aggregate_over_seeds(summary_df):
     group_cols = [
+        "ph_mode",
+        "n",
+        "d",
         "mechanism",
         "geometry",
         "schedule",
@@ -220,6 +256,9 @@ def aggregate_over_seeds(summary_df):
 
 def make_epochwise_average(long_df):
     group_cols = [
+        "ph_mode",
+        "n",
+        "d",
         "mechanism",
         "geometry",
         "schedule",
@@ -264,7 +303,8 @@ def main():
     long_df = pd.concat(dfs, ignore_index=True)
     long_df = (
         long_df.sort_values(
-            ["mechanism", "geometry", "schedule",
+            ["ph_mode", "n", "d",
+             "mechanism", "geometry", "schedule",
              "severity", "mover_frac", "noise", "seed", "epoch"]
         )
         .reset_index(drop=True)
@@ -278,6 +318,9 @@ def main():
 
     run_summaries = []
     group_cols = [
+        "ph_mode",
+        "n",
+        "d",
         "mechanism",
         "geometry",
         "schedule",

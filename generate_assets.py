@@ -12,6 +12,9 @@ def ensure_dir(path):
 
 def save_top_tables(run_df, out_dir):
     cols = [
+        "ph_mode",
+        "n",
+        "d",
         "mechanism",
         "geometry",
         "schedule",
@@ -25,9 +28,15 @@ def save_top_tables(run_df, out_dir):
         "collapse_effective_rank_end",
         "collapse_projection_residual_end",
         "collapse_total_persistence_h1_end",
+        "collapse_betti_curve_area_h1_end",
+        "collapse_betti_curve_peak_h1_end",
+        "collapse_betti_curve_change_h1_end"
         "collapse_effective_rank_auc",
         "collapse_projection_residual_auc",
         "collapse_total_persistence_h1_auc",
+        "collapse_betti_curve_area_h1_auc",
+        "collapse_betti_curve_peak_h1_auc",
+        "collapse_betti_curve_change_h1_auc"
     ]
 
     for metric in ranking_metrics:
@@ -47,6 +56,9 @@ def save_top_tables(run_df, out_dir):
 
 def save_mover_frac_table(seed_agg_df, out_dir):
     keep_cols = [
+        "ph_mode",
+        "n",
+        "d",
         "mechanism",
         "geometry",
         "schedule",
@@ -56,8 +68,14 @@ def save_mover_frac_table(seed_agg_df, out_dir):
         "collapse_effective_rank_end__mean",
         "collapse_projection_residual_end__mean",
         "collapse_total_persistence_h1_end__mean",
+        "collapse_betti_curve_area_h1_end__mean",
+        "collapse_betti_curve_peak_h1_end__mean",
+        "collapse_betti_curve_change_h1_end__mean"
         "collapse_effective_rank_auc__mean",
         "collapse_projection_residual_auc__mean",
+        "collapse_betti_curve_area_h1_auc__mean",
+        "collapse_betti_curve_peak_h1_auc__mean",
+        "collapse_betti_curve_change_h1_auc__mean"
     ]
 
     keep_cols = [c for c in keep_cols if c in seed_agg_df.columns]
@@ -74,21 +92,30 @@ def save_mechanism_geometry_tables(seed_agg_df, out_dir):
         "collapse_effective_rank_end__mean": "endpoint_rank_collapse",
         "collapse_projection_residual_end__mean": "endpoint_projection_collapse",
         "collapse_total_persistence_h1_end__mean": "endpoint_h1_collapse",
+        "collapse_betti_curve_area_h1_end__mean": "endpoint_betti_area_h1_collapse",
+        "collapse_betti_curve_peak_h1": "endpoint_betti_peak_h1_collapse",
+        "collapse_betti_curve_change_h1": "endpoint_betti_change_h1_collapse",
         "collapse_effective_rank_auc__mean": "auc_rank_collapse",
         "collapse_projection_residual_auc__mean": "auc_projection_collapse",
+        "collapse_total_persistence_h1_auc__mean": "auc_tp_h1_collapse",
+        "collapse_betti_curve_area_h1_auc__mean": "auc_betti_area_h1_collapse",
+        "collapse_betti_curve_peak_h1_auc__mean": "auc_betti_peak_h1_collapse",
+        "collapse_betti_curve_change_h1_auc__mean": "auc_betti_change_h1_collapse"
     }
 
     for metric, stem in metric_map.items():
         if metric not in seed_agg_df.columns:
             continue
 
-        pivot = seed_agg_df.pivot_table(
-            index="mechanism",
-            columns="geometry",
-            values=metric,
-            aggfunc="mean",
-        )
-        pivot.to_csv(os.path.join(out_dir, f"{stem}_table.csv"))
+        for (ph_mode, n, d), sub_df in seed_agg_df.groupby(["ph_mode", "n", "d"]):
+            pivot = sub_df.pivot_table(
+                index="mechanism",
+                columns="geometry",
+                values=metric,
+                aggfunc="mean",
+            )
+            out_name = f"{ph_mode}__n{n}__d{d}__{stem}_table.csv"
+            pivot.to_csv(os.path.join(out_dir, out_name))
 
 
 def plot_metric_trajectories(epoch_df, out_dir):
@@ -98,25 +125,29 @@ def plot_metric_trajectories(epoch_df, out_dir):
         ("mean_pairwise_distance", "mean_pairwise_distance_over_epoch.png"),
         ("projection_residual", "projection_residual_over_epoch.png"),
         ("total_persistence_h1", "total_persistence_h1_over_epoch.png"),
+        ("betti_curve_area_h1", "betti_curve_area_h1_over_epoch.png"),
+        ("betti_curve_peak_h1", "betti_curve_peak_h1_over_epoch.png"),
+        ("betti_curve_change_h1", "betti_curve_change_h1_over_epoch.png")
     ]
 
     for metric, fname in plot_specs:
         if metric not in epoch_df.columns:
             continue
+        for (ph_mode, n, d), sub_df in epoch_df.groupby(["ph_mode", "n", "d"]):
+            plt.figure(figsize=(10, 6))
+            for mech, df_mech in sub_df.groupby("mechanism"):
+                df_mech = df_mech.sort_values("epoch")
+                y = df_mech.groupby("epoch")[metric].mean()
+                plt.plot(y.index, y.values, label=mech)
 
-        plt.figure(figsize=(10, 6))
-        for mech, df_mech in epoch_df.groupby("mechanism"):
-            df_mech = df_mech.sort_values("epoch")
-            y = df_mech.groupby("epoch")[metric].mean()
-            plt.plot(y.index, y.values, label=mech)
-
-        plt.xlabel("Epoch")
-        plt.ylabel(metric)
-        plt.title(metric.replace("_", " "))
-        plt.legend()
-        plt.tight_layout()
-        plt.savefig(os.path.join(out_dir, fname), dpi=200)
-        plt.close()
+            plt.xlabel("Epoch")
+            plt.ylabel(metric)
+            plt.title(f"{ph_mode} | n={n} | d={d} | {metric.replace("_", " ")}")
+            plt.legend()
+            plt.tight_layout()
+            out_name = f"{ph_mode}_n{n}_d{d}_{fname}"
+            plt.savefig(os.path.join(out_dir, out_name), dpi=200)
+            plt.close()
 
 
 def plot_collapse_trajectories(epoch_df, out_dir):
@@ -130,25 +161,32 @@ def plot_collapse_trajectories(epoch_df, out_dir):
          "collapse_projection_residual_over_epoch.png"),
         ("collapse_total_persistence_h1",
          "collapse_total_persistence_h1_over_epoch.png"),
+        ("collapse_betti_curve_area_h1",
+         "collapse_betti_curve_area_h1_over_epoch.png"),
+        ("collapse_betti_curve_peak_h1",
+         "collapse_betti_curve_peak_h1_over_epoch.png"),
+        ("collapse_betti_curve_change_h1",
+         "collapse_betti_curve_change_h1_over_epoch.png")
     ]
 
     for metric, fname in plot_specs:
         if metric not in epoch_df.columns:
             continue
+        for (ph_mode, n, d), sub_df in epoch_df.groupby(["ph_mode", "n", "d"]):
+            plt.figure(figsize=(10, 6))
+            for mech, df_mech in sub_df.groupby("mechanism"):
+                df_mech = df_mech.sort_values("epoch")
+                y = df_mech.groupby("epoch")[metric].mean()
+                plt.plot(y.index, y.values, label=mech)
 
-        plt.figure(figsize=(10, 6))
-        for mech, df_mech in epoch_df.groupby("mechanism"):
-            df_mech = df_mech.sort_values("epoch")
-            y = df_mech.groupby("epoch")[metric].mean()
-            plt.plot(y.index, y.values, label=mech)
-
-        plt.xlabel("Epoch")
-        plt.ylabel(metric)
-        plt.title(metric.replace("_", " "))
-        plt.legend()
-        plt.tight_layout()
-        plt.savefig(os.path.join(out_dir, fname), dpi=200)
-        plt.close()
+            plt.xlabel("Epoch")
+            plt.ylabel(metric)
+            plt.title(f"{ph_mode} | n={n} | d={d} | {metric.replace("_", " ")}")
+            plt.legend()
+            plt.tight_layout()
+            out_name = f"{ph_mode}_n{n}_d{d}_{fname}"
+            plt.savefig(os.path.join(out_dir, out_name), dpi=200)
+            plt.close()
 
 
 def plot_mover_frac_effect(epoch_df, out_dir):
@@ -156,9 +194,13 @@ def plot_mover_frac_effect(epoch_df, out_dir):
         "collapse_effective_rank",
         "collapse_projection_residual",
         "collapse_total_persistence_h1",
+        "collapse_betti_curve_area_h1",
+        "collapse_betti_curve_peak_h1",
+        "collapse_betti_curve_change_h1"
     ]
 
-    for (mechanism, geometry), df_sub in epoch_df.groupby(["mechanism", "geometry"]):
+    for (ph_mode, n, d, mechanism, geometry), df_sub in epoch_df.groupby(
+            ["ph_mode", "n", "d", "mechanism", "geometry"]):
         for metric in key_metrics:
             if metric not in df_sub.columns:
                 continue
@@ -171,11 +213,11 @@ def plot_mover_frac_effect(epoch_df, out_dir):
 
             plt.xlabel("Epoch")
             plt.ylabel(metric)
-            plt.title(f"{mechanism} | {geometry} | {metric}")
+            plt.title(f"{ph_mode} | {n} | {d} | {mechanism} | {geometry} | {metric}")
             plt.legend()
             plt.tight_layout()
 
-            safe_name = f"{mechanism}__{geometry}__{metric}.png".replace("/", "_")
+            safe_name = f"{ph_mode}__{n}__{d}__{mechanism}__{geometry}__{metric}.png".replace("/", "_")
             plt.savefig(
                 os.path.join(out_dir, "mover_frac", safe_name),
                 dpi=200,
@@ -190,28 +232,39 @@ def plot_heatmaps(seed_agg_df, out_dir):
         "collapse_effective_rank_end__mean": "heatmap_rank_endpoint.png",
         "collapse_projection_residual_end__mean": "heatmap_projection_endpoint.png",
         "collapse_total_persistence_h1_end__mean": "heatmap_h1_endpoint.png",
+        "collapse_betti_curve_area_h1_end__mean": "heatmap_betti_area_h1_endpoint.png",
+        "collapse_betti_curve_peak_h1_end__mean": "heatmap_betti_peak_h1_endpoint.png",
+        "collapse_betti_curve_change_h1_end__mean": "heatmap_betti_change_h1_endpoint.png",
     }
 
     for metric, fname in metric_map.items():
         if metric not in seed_agg_df.columns:
             continue
 
-        pivot = seed_agg_df.pivot_table(
-            index="mechanism",
-            columns="geometry",
-            values=metric,
-            aggfunc="mean",
-        )
+        for (ph_mode, n, d), df_sub in seed_agg_df.groupby(["ph_mode", "n", "d"]):
+            pivot = df_sub.pivot_table(
+                index="mechanism",
+                columns="geometry",
+                values=metric,
+                aggfunc="mean",
+            )
 
-        plt.figure(figsize=(10, 5))
-        plt.imshow(pivot.values, aspect="auto")
-        plt.xticks(range(len(pivot.columns)), pivot.columns, rotation=45, ha="right")
-        plt.yticks(range(len(pivot.index)), pivot.index)
-        plt.colorbar(label=metric)
-        plt.title(metric.replace("_", " "))
-        plt.tight_layout()
-        plt.savefig(os.path.join(out_dir, "heatmaps", fname), dpi=200)
-        plt.close()
+            plt.figure(figsize=(10, 5))
+            plt.imshow(pivot.values, aspect="auto")
+            plt.xticks(
+                range(len(pivot.columns)),
+                pivot.columns,
+                rotation=45,
+                ha="right",
+            )
+            plt.yticks(range(len(pivot.index)), pivot.index)
+            plt.colorbar(label=metric)
+            plt.title(f"{ph_mode} | n={n} | d={d}: {metric.replace('_', ' ')}")
+            plt.tight_layout()
+            out_name = f"{ph_mode}__n{n}__d{d}__{fname}"
+            plt.savefig(os.path.join(out_dir, "heatmaps", out_name), dpi=200)
+            plt.close()
+
 
 def plot_overlay_per_mechanism(epoch_df, out_dir):
     """
@@ -225,16 +278,21 @@ def plot_overlay_per_mechanism(epoch_df, out_dir):
         "effective_rank": "Effective rank",
         "projection_residual": "Projection residual",
         "total_persistence_h1": "Total persistence H1",
+        "betti_curve_area_h1": "Betti curve area H1",
+        "betti_curve_peak_h1": "Betti peak H1"
     }
 
-    for mechanism, df_mech in epoch_df.groupby("mechanism"):
+    for (ph_mode, n, d, mechanism), df_mech in epoch_df.groupby([
+        "ph_mode", "n", "d", "mechanism"]):
         df_mech = df_mech.sort_values("epoch").copy()
 
         avg_df = (
             df_mech.groupby("epoch")[
                 ["effective_rank",
                  "projection_residual",
-                 "total_persistence_h1"]
+                 "total_persistence_h1",
+                 "betti_curve_area_h1",
+                 "betti_curve_peak_h1"]
             ]
             .mean()
             .reset_index()
@@ -260,11 +318,11 @@ def plot_overlay_per_mechanism(epoch_df, out_dir):
 
         plt.xlabel("Epoch")
         plt.ylabel("Relative collapse score")
-        plt.title(f"{mechanism}: normalized metric overlay")
+        plt.title(f"{ph_mode} | n={n} | d={d} | {mechanism}: normalized metric overlay")
         plt.legend()
         plt.tight_layout()
 
-        safe_name = f"{mechanism}__metric_overlay.png".replace("/", "_")
+        safe_name = f"{ph_mode}__n{n}__d{d}__{mechanism}__metric_overlay.png".replace("/", "_")
         plt.savefig(os.path.join(out_dir, safe_name), dpi=200)
         plt.close()
 
