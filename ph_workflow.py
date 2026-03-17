@@ -109,6 +109,15 @@ def _simplex_change_score(_x, _x_prev):
     return float(dx / scale)
 
 
+def _mean_relative_edge_change(_edge_filt_new, _edge_filt_old):
+    vals = []
+    for key, new_val in _edge_filt_new.items():
+        old_val = _edge_filt_old[key]
+        denom = abs(old_val) + 1e-12
+        vals.append(abs(new_val - old_val) / denom)
+    return float(np.mean(vals)) if vals else 0.0
+
+
 class PHWorkflow:
     """
     Handles the complex / PH logic separately from metric computation.
@@ -137,6 +146,11 @@ class PHWorkflow:
     event_driven:
         Recompute VR only when the cloud changes are meaningful, otherwise reuse
         prior diagrams.
+
+    online_landmark_event:
+        Choose fixed landmarks and a fixed knn support at epoch 1.
+        Update edge weights every epoch, only recompute PH when the
+        landmark support geometry has changed enough.
     """
 
     def __init__(self,
@@ -149,7 +163,8 @@ class PHWorkflow:
                  _skip_every=2,
                  _knn_k=12,
                  _event_thresh=0.02,
-                 _event_max_skip=5):
+                 _event_max_skip=5,
+                 _force_every=10):
         self.mode = _mode
         self.max_dim = _max_dim
         self.sparse = _sparse
@@ -160,6 +175,9 @@ class PHWorkflow:
         self.knn_k = _knn_k
         self.event_thresh = _event_thresh
         self.event_max_skip = _event_max_skip
+
+        self.force_every = _force_every
+        self.last_force = None
 
         self.max_edge_len = None
         self.landmark_idx = None
@@ -173,6 +191,9 @@ class PHWorkflow:
         self.support_n = None
 
         self.last_recomputed = False
+
+        self.edge_filt_prev = None
+        self.last_event_score = None
 
     def _fit_epoch1(self, _x):
         self.max_edge_len = compute_max_edge(_x, self.too_big)
@@ -208,6 +229,22 @@ class PHWorkflow:
                                                    edge_filt,
                                                    self.max_dim)
             print("[PH FIXED KNN EDGES] {}".format(len(edges)))
+
+        if self.mode == "online_landmark_event":
+            self.landmark_idx = furthest_point_subsample(_x,
+                                                         self.n_landmarks,
+                                                         self.seed)
+            x_use = self._cloud_for_epoch(_x)
+            edges, d_mat = _knn_edges(x_use, self.knn_k)
+            edge_filt = _edge_filtration_from_d_mat(edges, d_mat, self.max_edge_len)
+            self.support_edges = edges
+            self.support_n = x_use.shape[0]
+            self.simplex_tree = _build_clique_tree(self.support_n,
+                                                   self.support_edges,
+                                                   edge_filt,
+                                                   self.max_dim)
+            self.edge_filt_prev = edge_filt
+            print("[PH ONLINE LANDMARK EVENT] {} edges".format(len(edges)))
 
     def _cloud_for_epoch(self, _x):
         if self.landmark_idx is not None:
@@ -251,6 +288,41 @@ class PHWorkflow:
             print("[PH EVENT DRIVEN] change event occurred at epoch {}".format(_epoch))
         return check
 
+    def _compute_online_landmark_event(self, _x_use, _epoch):
+        d_mat = _pairwise_dist(_x_use)
+        edge_filt_new = _edge_filtration_from_d_mat(self.support_edges,
+                                                    d_mat,
+                                                    self.max_edge_len)
+        if self.prev_dgms is None:
+            recompute = True
+            event_score = np.inf
+        elif self.prev_epoch is None:
+            recompute = True
+            event_score = np.inf
+        else:
+            event_score = _mean_relative_edge_change(edge_filt_new,
+                                                     self.edge_filt_prev)
+            recompute = (event_score >= self.event_thresh
+                         or (_epoch - self.prev_epoch) >= self.event_max_skip
+                         or (_epoch - self.last_force) >= self.force_every)
+        self.last_event_score = event_score
+
+        if not recompute:
+            self.last_recomputed = False
+            self.edge_filt_prev = edge_filt_new
+            return self.prev_dgms
+
+        _update_tree_filtration(self.simplex_tree,
+                                self.support_n,
+                                edge_filt_new)
+        self.simplex_tree.persistence()
+        dgms = [np.array(self.simplex_tree.persistence_intervals_in_dimension(d))
+                for d in range(self.max_dim +1)]
+        self.last_recomputed = True
+        self.last_force = _epoch
+        self.edge_filt_prev = edge_filt_new
+        return dgms
+
     def diagrams(self, _x, _epoch):
         """
         Returns persistence diagrams for this checkpoint.
@@ -286,8 +358,10 @@ class PHWorkflow:
                 self.last_recomputed = True
                 dgms = self._compute_full_vr(x_use)
             else:
+                self.last_recomputed = False
                 return self.prev_dgms
-
+        elif self.mode == "online_landmark_event":
+            dgms = self._compute_online_landmark_event(x_use, _epoch)
         else:
             raise ValueError("Unknown mode")
 

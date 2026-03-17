@@ -10,13 +10,13 @@ import pandas as pd
 from scipy.spatial.distance import pdist
 from tqdm import tqdm
 
-from complex_persistence import compute_vr_diagrams
 from metrics import (
     effective_rank,
     top_k_variance_fraction,
-    mean_pairwise_distance,
     projection_residual,
     total_persistence_h1,
+    max_persistence_h1,
+    top5_persistence_h1,
     betti_curve_from_diagram,
     betti_curve_area,
     betti_curve_peak,
@@ -30,6 +30,11 @@ from projectors import (
     proj_to_paraboloid,
 )
 
+EXTERNAL_ROOT = "/media/alkal/WD_BLACK/evolve_collapse"
+CHECKPOINT_ROOT = os.path.join(EXTERNAL_ROOT, "evolve_checkpoints")
+METRIC_ROOT = os.path.join(EXTERNAL_ROOT, "metric_outputs")
+SUMMARY_ROOT = os.path.join(EXTERNAL_ROOT, "metric_summaries")
+ASSET_ROOT = os.path.join(EXTERNAL_ROOT, "summary_assets")
 
 CKPT_RE = re.compile(r"ckpt_epoch_(\d+)\.pkl$")
 
@@ -53,7 +58,7 @@ def parse_k_from_model(_model_name, _default=8):
 
 def get_projection_fn(_mechanism, _model_name):
     k = parse_k_from_model(_model_name)
-
+    print(f"[PROJ DIM] {k}")
     if _mechanism == "linear_to_kplane":
         return lambda x: proj_to_k_plane(x, _k=k)
 
@@ -94,12 +99,13 @@ def measure_run(_run_dir, _too_big=False, _ph_mode="full_vr"):
                     _max_dim=1,
                     _sparse=0.2,
                     _too_big=_too_big,
-                    _n_landmarks=250,
+                    _n_landmarks=500,
                     _seed=17,
                     _skip_every=2,
-                    _knn_k=12,
-                    _event_thresh=0.02,
-                    _event_max_skip=5)
+                    _knn_k=24,
+                    _event_thresh=0.01,
+                    _event_max_skip=5,
+                    _force_every=5)
     betti_grid = None
     betti_ref_curve_h1 = None
 
@@ -140,7 +146,11 @@ def measure_run(_run_dir, _too_big=False, _ph_mode="full_vr"):
             "ph_recomputed": ph.last_recomputed,
             "ph_time_sec": ph_time_sec,
             "ph_mem": mem_mb,
+            "ph_landmarks": ph.n_landmarks,
+            "ph_event_score": ph.last_event_score,
             "total_persistence_h1": total_persistence_h1(dgms[1]),
+            "max_persistence_h1": max_persistence_h1(dgms[1]),
+            "top5_persistence_h1": top5_persistence_h1(dgms[1]),
             "betti_curve_area_h1": betti_curve_area(dgm1, betti_grid),
             "betti_curve_peak_h1": betti_curve_peak(dgm1, betti_grid),
             "betti_curve_change_h1": betti_curve_change(dgm1,
@@ -205,7 +215,12 @@ def main(_root_dir="evolve_checkpoints",
 
 if __name__ == "__main__":
     #main(_ph_mode="full_vr")
-    main(_ph_mode="landmark_vr")
+    main(_root_dir=CHECKPOINT_ROOT,
+         _out_dir=METRIC_ROOT,
+        _ph_mode="landmark_vr")
     #main(_ph_mode="fixed_support_vr")
     #main(_ph_mode="fixed_knn_vr")
     #main(_ph_mode="event_driven")
+    main(_root_dir=CHECKPOINT_ROOT,
+         _out_dir=METRIC_ROOT,
+         _ph_mode="online_landmark_event")

@@ -16,8 +16,12 @@ from topological_mechanisms import (HoleFillParams, PinchParams, BridgeParams,
                                     step_hole_fill, step_loop_pinch,
                                     step_bridge_across_hole)
 from trajectory import dynamics
-from utils import random_orthogonal, rotate_cloud
 
+EXTERNAL_ROOT = "/media/alkal/WD_BLACK/evolve_collapse"
+CHECKPOINT_ROOT = os.path.join(EXTERNAL_ROOT, "evolve_checkpoints")
+METRIC_ROOT = os.path.join(EXTERNAL_ROOT, "metric_outputs")
+SUMMARY_ROOT = os.path.join(EXTERNAL_ROOT, "metric_summaries")
+ASSET_ROOT = os.path.join(EXTERNAL_ROOT, "summary_assets")
 
 
 def get_mechanism_params(_mechanism, _severity):
@@ -72,7 +76,7 @@ def build_experiments(_n, _d, _num_steps, _checkpoint_every, _seed, _k):
     :return:
     """
     geometries = [
-        #"kcube",
+        "kcube",
         #"kplane",
         #"sphere",
         #"torus",
@@ -83,7 +87,7 @@ def build_experiments(_n, _d, _num_steps, _checkpoint_every, _seed, _k):
 
     mechanisms = [
         "linear_to_kplane",
-        #"nonlinear_to_kplane",
+        "nonlinear_to_kplane",
         #"nonlinear_to_sphere",
         #"nonlinear_to_torus",
         #"nonlinear_to_paraboloid",
@@ -93,7 +97,7 @@ def build_experiments(_n, _d, _num_steps, _checkpoint_every, _seed, _k):
     schedules = ["linear", "exponential", "sigmoid"]
     severities = ["weak", "moderate", "strong"]
     mover_fracs = [0.25, 0.5, 1.0]
-    noises = [0.0]
+    noises = [0.0, 0.1, 0.2, 0.3]
 
     exps = []
     for geom, mech, sched, sev, mp, noise in product(
@@ -221,7 +225,7 @@ def build_step(_exp):
         _t=_exp.total_steps,
     )
 
-def run_experiment(_exp):
+def run_experiment(_exp, _root_dir="evolve_checkpoints"):
     """
 
     :param _exp:
@@ -239,6 +243,7 @@ def run_experiment(_exp):
         f"{_exp.base_geometry}"
         f"_n{_exp.n}"
         f"_d{_exp.d}"
+        f"_k{_exp.k}"
         f"__{_exp.schedule}"
         f"__{_exp.severity}"
         f"__mp{_exp.mover_frac}"
@@ -246,7 +251,7 @@ def run_experiment(_exp):
         f"__seed{_exp.seed}"
     )
 
-    root_dir = "evolve_checkpoints"
+    root_dir = _root_dir
     experiment = "collapse_ph"
     mechanism = _exp.mechanism
     run_dir = os.path.join(root_dir, experiment, mechanism, model_name)
@@ -256,6 +261,7 @@ def run_experiment(_exp):
         return
 
     ckpt = CheckpointManager(
+        _root_dir=_root_dir,
         _experiment="collapse_ph",
         _mechanism=_exp.mechanism,
         _model=model_name,
@@ -271,7 +277,8 @@ def run_experiment(_exp):
              ckpt)
 
 
-def run_all(_n, _d, _num_steps, _checkpoint_every, _seed=None, _k=8):
+def run_all(_n, _d, _num_steps, _checkpoint_every,
+            _seed=None, _k=8, _root_dir="evolve_checkpoints"):
     """
 
     :param _n:
@@ -294,8 +301,12 @@ def run_all(_n, _d, _num_steps, _checkpoint_every, _seed=None, _k=8):
               f"{exp.base_geometry} | {exp.mechanism} | "
               f"{exp.schedule} | {exp.severity} | "
               f"mp={exp.mover_frac} | noise={exp.noise}")
-        run_experiment(exp)
+        run_experiment(exp, _root_dir)
 
 
 if __name__ == "__main__":
-    run_all(2000, 50, 50, 2, _seed=17, _k=4)
+    for np in [1000, 2000, 5000]:
+        for di in [50, 100]:
+            proj_k = int(di / 3)
+            run_all(np, di, 50, 2,
+                    _seed=17, _k=proj_k, _root_dir=CHECKPOINT_ROOT)

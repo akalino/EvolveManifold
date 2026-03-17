@@ -53,6 +53,29 @@ def total_persistence_h1(diagram_h1):
         return 0.0
     return float(np.sum(lifetimes))
 
+
+def max_persistence_h1(diagram_h1):
+    dgm = np.asarray(diagram_h1, dtype=float)
+    if dgm.size == 0:
+        return 0.0
+    lifetimes = dgm[:, 1] - dgm[:, 0]
+    lifetimes = lifetimes[np.isfinite(lifetimes)]
+    if len(lifetimes) == 0:
+        return 0.0
+    return float(np.max(lifetimes))
+
+
+def top5_persistence_h1(diagram_h1):
+    dgm = np.asarray(diagram_h1, dtype=float)
+    if dgm.size == 0:
+        return 0.0
+    lifetimes = dgm[:, 1] - dgm[:, 0]
+    lifetimes = lifetimes[np.isfinite(lifetimes)]
+    if len(lifetimes) == 0:
+        return 0.0
+    lifetimes = np.sort(lifetimes)[::-1]
+    return float(np.sum(lifetimes[:5]))
+
 def mean_xy_radius(x):
     return float(np.mean(np.linalg.norm(x[:, :2], axis=1)))
 
