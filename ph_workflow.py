@@ -132,6 +132,8 @@ def _compute_knn_indices(_x, _k):
     d_mat = _pairwise_dist(_x)
     n = d_mat.shape[0]
 
+    if _k <= 0:
+        raise ValueError("k cannot be negative or 0")
     if _k >= n:
         raise ValueError("k must be smaller than number of points n")
     d_mat = d_mat.copy()
@@ -255,6 +257,8 @@ def _support_edge_recall(_support_edges, _x, _k):
             b = max(i, int(j))
             if a != b:
                 curr_set.add((a, b))
+    if len(curr_set) == 0:
+        return 1.0
     overlap = len(curr_set & support_edges)
     return float(overlap / len(curr_set))
 
@@ -498,6 +502,8 @@ class PHWorkflow:
         self.edge_filt_prev = None
         self.last_event_score = None
         self.min_support_recall = 0.8
+        self.support_edge_age = {}
+        self.support_max_age = 3
 
     def _fit_epoch1(self, _x):
         self.max_edge_len = compute_max_edge(_x, self.too_big)
@@ -563,6 +569,7 @@ class PHWorkflow:
                 self.max_edge_len,
             )
             self.support_edges = edges
+            self.support_edge_age = {e: 0 for e in edges}
             self.support_n = x_use.shape[0]
             self.simplex_tree = _build_clique_tree(
                 self.support_n,
@@ -615,6 +622,82 @@ class PHWorkflow:
             print("[PH EVENT DRIVEN] change event occurred at epoch {}".format(_epoch))
         return check
 
+    def _event_reason(self, _rx_dict, _epoch):
+        reasons = []
+        score = _compute_composite_event_score(_rx_dict)
+        if score >= self.event_thresh:
+            reasons.append("score_thresh")
+
+        recall = _rx_dict["support_edge_recall"]
+        if (self.min_support_recall is not None and
+                recall is not None and
+                float(recall) < float(self.min_support_recall)):
+            reasons.append("low_support_recall")
+        if self.prev_epoch is not None:
+            if _epoch - self.prev_epoch >= self.event_max_skip:
+                reasons.append("max_skip")
+        if self.last_force is not None:
+            if _epoch - self.last_force >= self.force_every:
+                reasons.append("force_every")
+        return reasons
+
+    def _should_recompute_ph(self, _rx_dict, _epoch):
+        refresh_support = _should_refresh_support(_rx_dict,
+                                                  _score_thresh=self.event_thresh,
+                                                  _min_support_recall=self.min_support_recall)
+        if refresh_support:
+            return True
+        if self.prev_epoch is not None:
+            if _epoch - self.prev_epoch >= self.event_max_skip:
+                return True
+        if self.last_force is not None:
+            if _epoch - self.last_force >= self.force_every:
+                return True
+        return False
+
+    def _merge_support_edges(self, _old_edges, _new_edges):
+        old_set = set(_old_edges)
+        new_set = set(_new_edges)
+        merged = sorted(old_set | new_set)
+        for e in new_set:
+            self.support_edge_age[e] = 0
+
+        for e in old_set - new_set:
+            if e not in self.support_edge_age:
+                self.support_edge_age[e] = 0
+        return merged
+
+    def _prune_support_edges(self, _edges, _new_edges, _max_age):
+        new_set = set(_new_edges)
+        kept = []
+
+        for e in _edges:
+            if e in new_set:
+                self.support_edge_age[e] = 0
+            else:
+                self.support_edge_age[e] += 1
+
+            if self.support_edge_age[e] <= _max_age:
+                kept.append(e)
+        kept = sorted(kept)
+        keep_set = set(kept)
+        age_keys = list(self.support_edge_age.keys())
+        for e in age_keys:
+            if e not in keep_set:
+                del self.support_edge_age[e]
+        return kept
+
+    def _build_simplex_tree_from_support(self, _x_landmarks, _edges):
+        d_mat = _pairwise_dist(_x_landmarks)
+        edge_filt = _edge_filtration_from_d_mat(_edges,
+                                                d_mat,
+                                                self.max_edge_len)
+        st = _build_clique_tree(_x_landmarks.shape[0],
+                                _edges,
+                                edge_filt,
+                                self.max_dim)
+        return st, d_mat, edge_filt
+
     def _compute_online_landmark_event(self, _x_use, _epoch):
         d_mat = _pairwise_dist(_x_use)
         edge_filt_new = _edge_filtration_from_d_mat(self.support_edges,
@@ -661,6 +744,7 @@ class PHWorkflow:
                 _max_edge_length=self.max_edge_len,
             )
             self.support_edges = edges
+            self.support_edge_age = {e: 0 for e in edges}
             self.support_n = _x_use.shape[0]
             self.simplex_tree = _build_clique_tree(
                 self.support_n,
@@ -716,34 +800,35 @@ class PHWorkflow:
         event_score = _compute_composite_event_score(diag)
         self.last_event_score = event_score
 
-        refresh_support = _should_refresh_support(
-            diag,
-            _score_thresh=self.event_thresh,
-            _min_support_recall=self.min_support_recall,
+        reason_code = self._event_reason(diag, _epoch)
+        refresh_support = (
+            "score_thresh" in reason_code or
+            "low_support_recall" in reason_code
         )
-
-        force_recompute = (
-            (_epoch - self.prev_epoch) >= self.event_max_skip
-            or (self.last_force is not None and (_epoch - self.last_force) >= self.force_every)
-        )
+        recompute = self._should_recompute_ph(diag, _epoch)
 
         if refresh_support:
-            edges, d_mat_curr, edge_filt_new = _refresh_landmark_support(
+            new_edges, d_mat_curr, _ = _refresh_landmark_support(
                 _x_use,
                 _k=self.knn_k,
-                _max_edge_length=self.max_edge_len,
+                _max_edge_length=self.max_edge_len
             )
-            self.support_edges = edges
+            merged_edges = self._merge_support_edges(self.support_edges, new_edges)
+            pruned_edges = self._prune_support_edges(
+                merged_edges,
+                new_edges,
+                self.support_max_age
+            )
+            self.support_edges = pruned_edges
             self.support_n = _x_use.shape[0]
-            self.simplex_tree = _build_clique_tree(
-                self.support_n,
-                self.support_edges,
-                edge_filt_new,
-                self.max_dim,
-            )
-
-        recompute = refresh_support or force_recompute
-
+            self.simplex_tree, d_mat_curr, edge_filt_new = (
+                self._build_simplex_tree_from_support(_x_use, self.support_edges))
+            print("[PH DYNAMIC SUPPORT] old {}, new {}, merged {}, kept {}".format(
+                len(self.support_edges),
+                len(new_edges),
+                len(merged_edges),
+                len(pruned_edges)
+            ))
         if not recompute:
             self.last_recomputed = False
             self.edge_filt_prev = edge_filt_new
@@ -794,7 +879,7 @@ class PHWorkflow:
             if (self.prev_dgms is not None and
                     (_epoch % self.skip_every != 0)):
                 return self.prev_dgms
-            dgms = self._compute_full_support(x_use)
+            dgms = self._compute_full_vr(x_use)
 
         elif self.mode == "fixed_support_vr":
             dgms = self._compute_fixed_support(x_use)

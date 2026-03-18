@@ -76,7 +76,7 @@ def build_experiments(_n, _d, _num_steps, _checkpoint_every, _seed, _k):
     :return:
     """
     geometries = [
-        "kcube",
+        #"kcube",
         #"kplane",
         #"sphere",
         #"torus",
@@ -87,17 +87,17 @@ def build_experiments(_n, _d, _num_steps, _checkpoint_every, _seed, _k):
 
     mechanisms = [
         "linear_to_kplane",
-        "nonlinear_to_kplane",
+        #"nonlinear_to_kplane",
         #"nonlinear_to_sphere",
         #"nonlinear_to_torus",
         #"nonlinear_to_paraboloid",
         #"hole_fill"
     ]
 
-    schedules = ["linear", "exponential", "sigmoid"]
+    schedules = ["linear"] #, "exponential", "sigmoid"]
     severities = ["weak", "moderate", "strong"]
     mover_fracs = [0.25, 0.5, 1.0]
-    noises = [0.0, 0.1, 0.2, 0.3]
+    noises = [0.0] #0.1, 0.2, 0.3]
 
     exps = []
     for geom, mech, sched, sev, mp, noise in product(
