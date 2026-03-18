@@ -215,12 +215,15 @@ def main(_root_dir="evolve_checkpoints",
 
 if __name__ == "__main__":
     #main(_ph_mode="full_vr")
-    main(_root_dir=CHECKPOINT_ROOT,
-         _out_dir=METRIC_ROOT,
-        _ph_mode="landmark_vr")
+    #main(_root_dir=CHECKPOINT_ROOT,
+    #     _out_dir=METRIC_ROOT,
+    #    _ph_mode="landmark_vr")
     #main(_ph_mode="fixed_support_vr")
     #main(_ph_mode="fixed_knn_vr")
     #main(_ph_mode="event_driven")
+    #main(_root_dir=CHECKPOINT_ROOT,
+    #     _out_dir=METRIC_ROOT,
+    #     _ph_mode="online_landmark_event")
     main(_root_dir=CHECKPOINT_ROOT,
          _out_dir=METRIC_ROOT,
-         _ph_mode="online_landmark_event")
+         _ph_mode="online_landmark_dynamic_support")
