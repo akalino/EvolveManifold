@@ -34,32 +34,32 @@ def get_mechanism_params(_mechanism, _severity):
     if _mechanism == "linear_to_kplane":
         if _severity == "weak":
             return {"alpha_0": 1.0, "alpha_t": 0.5}
-        if _severity == "med":
+        if _severity == "moderate":
             return {"alpha_0": 1.0, "alpha_t": 0.2}
         return {"alpha_0": 1.0, "alpha_t": 0.05}
 
     if _mechanism == "hole_fill":
         if _severity == "weak":
             return {"r0": 0.0, "rt": 0.2}
-        if _severity == "med":
+        if _severity == "moderate":
             return {"r0": 0.0, "rt": 0.5}
         return {"r0": 0.0, "rt": 0.8}
     if _mechanism == "loop_pinch":
         if _severity == "weak":
             return {"strength_0": 0.0, "strength_t": 0.3}
-        if _severity == "med":
+        if _severity == "moderate":
             return {"strength_0": 0.0, "strength_t": 0.6}
         return {"strength_0": 0.0, "strength_t": 1.0}
     if _mechanism == "bridge_across_hole":
         if _severity == "weak":
             return {"strength_0": 0.0, "strength_t": 0.3}
-        if _severity == "med":
+        if _severity == "moderate":
             return {"strength_0": 0.0, "strength_t": 0.6}
         return {"strength_0": 0.0, "strength_t": 1.0}
 
     if _severity == "weak":
         return {"eps_0": 0.5, "eps_t": 0.05, "relax": 0.2}
-    if _severity == "med":
+    if _severity == "moderate":
         return {"eps_0": 0.5, "eps_t": 0.02, "relax": 0.5}
     return {"eps_0": 0.5, "eps_t": 0.005, "relax": 1.0}
 
