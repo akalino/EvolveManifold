@@ -231,9 +231,9 @@ def _simple_kmeans_labels(x, n_clusters, seed=0, n_iter=25):
 
 
 def test(_args):
-    x, labs1 = make_clustered_gaussian(args.n, args.d, args.k)
-    labs2 = _simple_kmeans_labels(x, args.k)
-    labs3 = _balanced_block_labels(args.n, args.k)
+    x, labs1 = make_clustered_gaussian(_args.n, _args.d, _args.k)
+    labs2 = _simple_kmeans_labels(x, _args.k)
+    labs3 = _balanced_block_labels(_args.n, _args.k)
     print('=== Labs 1 (OPC) ===')
     print(labs1)
     print('=== Labs 2 (KNN) ===')
@@ -241,10 +241,12 @@ def test(_args):
     print('=== Labs 3 (BLO) ===')
     print(labs3)
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Cluster helpers')
     parser.add_argument("-d", type=int)
     parser.add_argument("-n", type=int)
     parser.add_argument("-k", type=int)
     args = parser.parse_args()
+    test(args)
 
