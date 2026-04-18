@@ -111,6 +111,7 @@ def measure_run(_run_dir, _too_big=False, _ph_mode="full_vr"):
 
     rows = []
     i = 0
+    print("Beginning checkpoint measurement")
     for ckpt_path in tqdm(ckpt_paths):
         payload = load_checkpoint(ckpt_path)
         x = payload["x"]
@@ -119,6 +120,7 @@ def measure_run(_run_dir, _too_big=False, _ph_mode="full_vr"):
         t0 = time.perf_counter()
         dgms = ph.diagrams(x, epoch)
         ph_time_sec = time.perf_counter() - t0
+        print(f"Diagram computation took {ph_time_sec} seconds")
         mem_mb = get_memory_mb()
 
         dgm1 = dgms[1]

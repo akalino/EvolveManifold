@@ -6,7 +6,7 @@ class TrajectoryExperiment:
     mechanism: str
     n: int
     d: int
-    k: int | None
+    k: int
     total_steps: int
     checkpoint_every: int
     seed: int
