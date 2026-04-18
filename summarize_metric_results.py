@@ -9,16 +9,14 @@ import pandas as pd
 
 
 FILE_RE = re.compile(
-    r"(?P<ph_mode>[^_]+(?:_[^_]+)*)-"
-    r"(?P<mechanism>[^_]+(?:_[^_]+)*)__"
-    r"(?P<geometry>[^_]+(?:_[^_]+)*)_"
-    r"n(?P<n>\d+)_"
-    r"d(?P<d>\d+)__"
-    r"(?P<schedule>[^_]+)__"
-    r"(?P<severity>[^_]+)__"
-    r"mp(?P<mover_frac>[0-9.]+)__"
-    r"noise(?P<noise>[0-9.]+)__"
-    r"seed(?P<seed>\d+)\.csv$"
+    r"^(?P<ph_mode>.+?)-(?P<mechanism>.+?)__"
+    r"(?P<geometry>.+?)_n(?P<n>\d+)_d(?P<d>\d+)"
+    r"(?:_k(?P<k>\d+))?"
+    r"__(?P<schedule>.+?)"
+    r"__(?P<severity>.+?)"
+    r"__mp(?P<mover_frac>[\d.]+)"
+    r"__noise(?P<noise>[\d.]+)"
+    r"__seed(?P<seed>\d+)\.csv$"
 )
 
 
@@ -29,6 +27,8 @@ def parse_metadata_from_filename(path):
         return None
 
     out = m.groupdict()
+    if out.get("k") is not None:
+        out["k"] = int(out["k"])
     out["n"] = int(out["n"])
     out["d"] = int(out["d"])
     out["mover_frac"] = float(out["mover_frac"])

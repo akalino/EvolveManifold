@@ -142,7 +142,7 @@ def plot_metric_trajectories(epoch_df, out_dir):
 
             plt.xlabel("Epoch")
             plt.ylabel(metric)
-            plt.title(f"{ph_mode} | n={n} | d={d} | {metric.replace("_", " ")}")
+            plt.title(f"{ph_mode} | n={n} | d={d} | {metric.replace('_', ' ')}")
             plt.legend()
             plt.tight_layout()
             out_name = f"{ph_mode}_n{n}_d{d}_{fname}"
@@ -181,7 +181,7 @@ def plot_collapse_trajectories(epoch_df, out_dir):
 
             plt.xlabel("Epoch")
             plt.ylabel(metric)
-            plt.title(f"{ph_mode} | n={n} | d={d} | {metric.replace("_", " ")}")
+            plt.title(f"{ph_mode} | n={n} | d={d} | {metric.replace('_', ' ')}")
             plt.legend()
             plt.tight_layout()
             out_name = f"{ph_mode}_n{n}_d{d}_{fname}"
