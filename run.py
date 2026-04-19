@@ -129,7 +129,8 @@ def build_experiments(_n, _d, _num_steps, _checkpoint_every, _seed, _k):
     :return:
     """
     geometries = [
-        "kcube"]
+        "kcube",
+        "clustered_gaussian"]
     #     "kplane",
     #     "sphere",
     #     "torus",
@@ -354,10 +355,26 @@ def run_experiment(_exp, _root_dir="evolve_checkpoints", _label_root=None):
             seed=_exp.seed,
         )
         save_cluster_labels(_exp, labels, _label_root)
+    elif _exp.base_geometry == "clustered_gaussian":
+            x0, labels = make_clustered_gaussian(
+                n=_exp.n,
+                d=_exp.d,
+                num_clusters=getattr(_exp, "num_clusters", 4),
+                seed=_exp.seed,
+            )
+            save_cluster_labels(_exp, labels, _label_root)
     else:
-        x0 = get_geometry(_exp.base_geometry, _exp.n, _exp.d, _seed=_exp.seed, _k=_exp.k)
-        labels = get_cluster_labels_for_geometry(_exp, x0)
-        save_cluster_labels(_exp, labels, _label_root)
+        x0 = get_geometry(
+                _exp.base_geometry,
+                _exp.n,
+                _exp.d,
+                _seed=_exp.seed,
+                _k=_exp.k)
+        labels = None
+    # else:
+    #     x0 = get_geometry(_exp.base_geometry, _exp.n, _exp.d, _seed=_exp.seed, _k=_exp.k)
+    #     labels = get_cluster_labels_for_geometry(_exp, x0)
+    #     save_cluster_labels(_exp, labels, _label_root)
 
     step_fn = build_step(_exp, x0)
 

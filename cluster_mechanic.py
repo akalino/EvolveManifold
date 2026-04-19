@@ -125,11 +125,11 @@ def cluster_params_from_severity(
     seed: int = 0,
 ) -> ClusterParams:
     if severity == "weak":
-        start_strength, end_strength = 0.0, 0.20
+        start_strength, end_strength = 0.0, 0.02
     elif severity == "moderate":
-        start_strength, end_strength = 0.0, 0.50
+        start_strength, end_strength = 0.0, 0.05
     elif severity == "strong":
-        start_strength, end_strength = 0.0, 0.85
+        start_strength, end_strength = 0.0, 0.10
     else:
         raise ValueError(f"Unknown severity: {severity}")
 
