@@ -2,6 +2,7 @@ import argparse
 import glob
 import os
 import re
+import pickle
 from typing import List, Tuple
 
 import matplotlib.pyplot as plt
@@ -9,11 +10,10 @@ import numpy as np
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 
-try:
-    import umap
-    HAS_UMAP = True
-except ImportError:
-    HAS_UMAP = False
+
+import umap
+HAS_UMAP = True
+
 
 
 def parse_args():
@@ -89,27 +89,59 @@ def parse_epoch_list(epoch_str: str) -> List[int]:
 
 def checkpoint_sort_key(path: str) -> int:
     fname = os.path.basename(path)
-    m = re.search(r"epoch_(\d+)\.pkl$", fname)
+    m = re.search(r"^ckpt_epoch_(\d+)\.pkl$", fname)
     if m is None:
         raise ValueError(f"Could not parse epoch from filename: {fname}")
     return int(m.group(1))
 
 
-def load_checkpoints_for_run(checkpoint_dir: str, run_stem: str) -> List[Tuple[int, np.ndarray, str]]:
-    print(run_stem)
-    pattern = os.path.join(checkpoint_dir, f"{run_stem}*")
+def load_checkpoints_for_run(checkpoint_dir: str, run_stem: str):
+    run_stem = run_stem.rstrip("/")
+
+    run_dir = os.path.join(checkpoint_dir, run_stem)
+    pattern = os.path.join(run_dir, "ckpt_epoch_*.pkl")
     paths = sorted(glob.glob(pattern), key=checkpoint_sort_key)
+
+    if not paths:
+        raise ValueError(f"No checkpoint files found in {run_dir}")
 
     out = []
     for path in paths:
-        if not path.endswith(".npy"):
-            continue
-        epoch = checkpoint_sort_key(path)
-        x = np.load(path)
-        out.append((epoch, x, path))
+        with open(path, "rb") as f:
+            obj = pickle.load(f)
 
-    if not out:
-        raise ValueError(f"No checkpoint files found for stem {run_stem} in {checkpoint_dir}")
+        if not isinstance(obj, dict):
+            raise ValueError(f"Expected checkpoint dict, got {type(obj)} in {path}")
+
+        if "x" not in obj:
+            raise ValueError(f"Checkpoint missing 'x' key: {path}")
+
+        x = np.asarray(obj["x"])
+        print(
+            path,
+            "shape=", x.shape,
+            "dtype=", x.dtype,
+            "finite_frac=", np.isfinite(x).mean(),
+            "nan_count=", np.isnan(x).sum(),
+            "posinf_count=", np.isposinf(x).sum(),
+            "neginf_count=", np.isneginf(x).sum(),
+        )
+
+        finite_mask = np.isfinite(x)
+        if finite_mask.any():
+            xf = x[finite_mask]
+            print(
+                "min=", xf.min(),
+                "max=", xf.max(),
+                "absmax=", np.abs(xf).max(),
+                "mean=", xf.mean(),
+                "std=", xf.std(),
+            )
+
+        if x.ndim != 2:
+            raise ValueError(f"Checkpoint x should be 2D, got shape {x.shape} in {path}")
+
+        out.append((checkpoint_sort_key(path), x, path))
 
     return out
 
@@ -126,11 +158,39 @@ def filter_epochs(checkpoints, requested_epochs):
 
 
 def load_labels(label_dir: str, run_stem: str) -> np.ndarray:
+    run_stem = run_stem.rstrip("/")
     path = os.path.join(label_dir, f"{run_stem}_labels.npy")
     if not os.path.exists(path):
         raise ValueError(f"Label file not found: {path}")
-    labels = np.load(path)
-    return labels.astype(int)
+
+    obj = np.load(path, allow_pickle=True)
+
+    # Case 1: normal numeric array
+    if isinstance(obj, np.ndarray) and obj.dtype != object:
+        labels = np.asarray(obj).reshape(-1).astype(int)
+        return labels
+
+    # Case 2: 0-d object array, unwrap it
+    if isinstance(obj, np.ndarray) and obj.shape == ():
+        obj = obj.item()
+
+    # Unwrapped possibilities
+    if isinstance(obj, dict):
+        if "labels" in obj:
+            labels = np.asarray(obj["labels"]).reshape(-1).astype(int)
+            return labels
+        raise ValueError(f"Label file contains dict without 'labels' key: {path}")
+
+    if isinstance(obj, tuple) or isinstance(obj, list):
+        # common accidental save shape: (x, labels)
+        if len(obj) == 2:
+            labels = np.asarray(obj[1]).reshape(-1).astype(int)
+            return labels
+        labels = np.asarray(obj).reshape(-1).astype(int)
+        return labels
+
+    labels = np.asarray(obj).reshape(-1).astype(int)
+    return labels
 
 
 def embed_pca_global(selected_checkpoints, random_state=0):
@@ -171,14 +231,57 @@ def embed_tsne_independent(selected_checkpoints, perplexity=30.0, random_state=0
     return embedded
 
 
-def embed_umap_independent(selected_checkpoints, random_state=0):
+def sanitize_points(x, clip_value=1e6):
+    x = np.asarray(x, dtype=np.float64).copy()
+    x[~np.isfinite(x)] = np.nan
+
+    col_means = np.nanmean(x, axis=0)
+    col_means = np.where(np.isfinite(col_means), col_means, 0.0)
+
+    nan_rows, nan_cols = np.where(np.isnan(x))
+    if len(nan_rows) > 0:
+        x[nan_rows, nan_cols] = col_means[nan_cols]
+
+    x = np.clip(x, -clip_value, clip_value)
+    return x
+
+
+def standardize_points(x, eps=1e-8):
+    x = np.asarray(x, dtype=np.float64)
+    mu = x.mean(axis=0, keepdims=True)
+    sd = x.std(axis=0, keepdims=True)
+    sd = np.maximum(sd, eps)
+    return (x - mu) / sd
+
+
+def pre_reduce_for_umap(x, pre_pca_dim=15, random_state=0):
+    x = np.asarray(x, dtype=np.float64)
+    pre_pca_dim = min(pre_pca_dim, x.shape[0], x.shape[1])
+    if pre_pca_dim < 2:
+        return x
+    pca = PCA(n_components=pre_pca_dim, random_state=random_state)
+    return pca.fit_transform(x)
+
+
+def embed_umap_independent(selected_checkpoints, random_state=0, pre_pca_dim=15, n_neighbors=100, min_dist=0.1):
     if not HAS_UMAP:
         raise ImportError("umap-learn is not installed. Install it or use --method pca/tsne.")
+
     embedded = []
     for epoch, x, path in selected_checkpoints:
-        reducer = umap.UMAP(n_components=2, random_state=random_state)
+        x = sanitize_points(x)
+        x = standardize_points(x)
+        x = pre_reduce_for_umap(x, pre_pca_dim=pre_pca_dim, random_state=random_state)
+
+        reducer = umap.UMAP(
+            n_components=2,
+            n_neighbors=n_neighbors,
+            min_dist=min_dist,
+            random_state=random_state,
+        )
         z = reducer.fit_transform(x)
         embedded.append((epoch, z, path))
+
     return embedded
 
 
@@ -215,6 +318,8 @@ def main():
     checkpoints = load_checkpoints_for_run(args.checkpoint_dir, args.run_stem)
     selected = filter_epochs(checkpoints, requested_epochs)
     labels = load_labels(args.label_dir, args.run_stem)
+    print("labels type:", type(labels), "shape:", getattr(labels, "shape", None), "dtype:",
+          getattr(labels, "dtype", None))
 
     for epoch, x, _ in selected:
         if len(labels) != len(x):

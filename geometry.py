@@ -152,6 +152,44 @@ def ring_init(_n, _d, _r=1.0, _width=0.15, _seed=None):
     return x
 
 
+def make_clustered_gaussian(_n, _d, _num_clusters=4, _cluster_std=0.5,
+    _center_scale=4.0, _seed=0, _shuffle=True, _return_centers=False):
+
+    if _n <= 0:
+        raise ValueError(f"n must be positive, got {_n}")
+    if _d <= 0:
+        raise ValueError(f"d must be positive, got {_d}")
+    if _num_clusters <= 0:
+        raise ValueError(f"num_clusters must be positive, got {_num_clusters}")
+
+    rng = np.random.default_rng(_seed)
+
+    counts = np.full(_num_clusters, _n // _num_clusters, dtype=int)
+    counts[: _n % _num_clusters] += 1
+
+    centers = rng.normal(loc=0.0, scale=_center_scale, size=(_num_clusters, _d))
+
+    xs = []
+    ys = []
+    for k, nk in enumerate(counts):
+        pts = centers[k] + rng.normal(loc=0.0, scale=_cluster_std, size=(nk, _d))
+        labs = np.full(nk, k, dtype=int)
+        xs.append(pts)
+        ys.append(labs)
+
+    x = np.vstack(xs)
+    labels = np.concatenate(ys)
+
+    if _shuffle:
+        perm = rng.permutation(_n)
+        x = x[perm]
+        labels = labels[perm]
+
+    if _return_centers:
+        return x, labels, centers
+    return x, labels
+
+
 def get_geometry(_name, _n, _d, _seed=None, _k=2):
     """
 
@@ -180,5 +218,7 @@ def get_geometry(_name, _n, _d, _seed=None, _k=2):
         return spiked_gaussian_init(_n, _d, _seed=_seed)
     if _name == "ring":
         return ring_init(_n, _d, _seed=_seed)
+    if _name == "clustered_gaussian":
+        return make_clustered_gaussian(_n, _d, _seed=_seed)
 
     raise ValueError(f"Unknown geometry: {_name}")
