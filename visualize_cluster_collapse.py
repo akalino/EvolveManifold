@@ -89,13 +89,14 @@ def parse_epoch_list(epoch_str: str) -> List[int]:
 
 def checkpoint_sort_key(path: str) -> int:
     fname = os.path.basename(path)
-    m = re.search(r"epoch(\d+)", fname)
+    m = re.search(r"epoch_(\d+)\.pkl$", fname)
     if m is None:
         raise ValueError(f"Could not parse epoch from filename: {fname}")
     return int(m.group(1))
 
 
 def load_checkpoints_for_run(checkpoint_dir: str, run_stem: str) -> List[Tuple[int, np.ndarray, str]]:
+    print(run_stem)
     pattern = os.path.join(checkpoint_dir, f"{run_stem}*")
     paths = sorted(glob.glob(pattern), key=checkpoint_sort_key)
 
@@ -210,6 +211,7 @@ def main():
     os.makedirs(args.out_dir, exist_ok=True)
 
     requested_epochs = parse_epoch_list(args.epochs)
+    print(requested_epochs)
     checkpoints = load_checkpoints_for_run(args.checkpoint_dir, args.run_stem)
     selected = filter_epochs(checkpoints, requested_epochs)
     labels = load_labels(args.label_dir, args.run_stem)
