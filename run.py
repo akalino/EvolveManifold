@@ -1,12 +1,15 @@
 """ Runner for forcing collapse. """
+import json
 import os
-import numpy as np
 
 # from contamination_mechanic import ContaminationParams, step_with_contamination
 from itertools import product
 
+import numpy as np
+
+
 from checkpoint import CheckpointManager
-from cluster_mechanic import ClusterParams, step_cluster_collapse, cluster_params_from_severity
+from cluster_mechanic import step_cluster_collapse, cluster_params_from_severity
 from clustering import make_clustered_gaussian, get_cluster_labels_for_geometry
 from geometry import get_geometry
 from experiment_dataclasses import TrajectoryExperiment
@@ -14,7 +17,7 @@ from linear_mechanic import LinearSpectralParams, step_linear_spectral
 from nonlinear_mechanic import NonLinearParams, step_nonlinear_projection
 from projectors import (proj_to_k_plane, proj_to_sphere,
                         proj_to_torus, proj_to_paraboloid)
-from radial_mechanic import RadialParams, step_radial, radial_params_from_severity
+from radial_mechanic import step_radial, radial_params_from_severity
 from topological_mechanisms import (HoleFillParams, PinchParams, BridgeParams,
                                     step_hole_fill, step_loop_pinch,
                                     step_bridge_across_hole)
@@ -25,6 +28,53 @@ CHECKPOINT_ROOT = os.path.join(EXTERNAL_ROOT, "evolve_checkpoints")
 METRIC_ROOT = os.path.join(EXTERNAL_ROOT, "metric_outputs")
 SUMMARY_ROOT = os.path.join(EXTERNAL_ROOT, "metric_summaries")
 ASSET_ROOT = os.path.join(EXTERNAL_ROOT, "summary_assets")
+CLUSTER_LABEL_ROOT = os.path.join(EXTERNAL_ROOT, "cluster_labels")
+
+
+def make_run_stem(_exp):
+    return(
+        f"{_exp.base_geometry}"
+        f"_n{_exp.n}"
+        f"_d{_exp.d}"
+        f"_k{_exp.k}"
+        f"__{_exp.schedule}"
+        f"__{_exp.severity}"
+        f"__mp{_exp.mover_frac}"
+        f"__noise{_exp.noise}"
+        f"__seed{_exp.seed}"
+    )
+
+
+def get_label_root_from_checkpoint_root(_checkpoint_root):
+    parent = os.path.dirname(_checkpoint_root.rstrip(os.sep))
+    return os.path.join(parent, "cluster_label_outputs")
+
+
+def save_cluster_labels(_exp, labels, label_root):
+    os.makedirs(label_root, exist_ok=True)
+
+    stem = make_run_stem(_exp)
+    labels_path = os.path.join(label_root, f"{stem}_labels.npy")
+    meta_path = os.path.join(label_root, f"{stem}_labels_meta.json")
+
+    np.save(labels_path, np.asarray(labels, dtype=int))
+
+    meta = {
+        "base_geometry": _exp.base_geometry,
+        "n": _exp.n,
+        "d": _exp.d,
+        "k": _exp.k,
+        "schedule": _exp.schedule,
+        "severity": _exp.severity,
+        "mover_frac": _exp.mover_frac,
+        "noise": _exp.noise,
+        "seed": _exp.seed,
+        "mechanism": _exp.mechanism,
+        "num_clusters": int(len(np.unique(labels))),
+    }
+
+    with open(meta_path, "w") as f:
+        json.dump(meta, f, indent=2)
 
 
 def get_mechanism_params(_mechanism, _severity):
@@ -286,12 +336,16 @@ def build_step(_exp, _x0=None):
         _t=_exp.total_steps,
     )
 
-def run_experiment(_exp, _root_dir="evolve_checkpoints"):
+
+def run_experiment(_exp, _root_dir="evolve_checkpoints", _label_root=None):
     """
 
     :param _exp:
     :return:
     """
+    if _label_root is None:
+        _label_root = os.path.join(os.path.dirname(_root_dir), "cluster_labels")
+
     if _exp.base_geometry == "clustered_gaussian":
         x0, labels = make_clustered_gaussian(
             n=_exp.n,
@@ -299,6 +353,7 @@ def run_experiment(_exp, _root_dir="evolve_checkpoints"):
             num_clusters=_exp.mechanism_params.get("num_clusters", 4),
             seed=_exp.seed,
         )
+        save_cluster_labels(_exp, labels, _label_root)
     else:
         x0 = get_geometry(_exp.base_geometry, _exp.n, _exp.d, _seed=_exp.seed, _k=_exp.k)
         labels = None
@@ -372,10 +427,10 @@ def run_all(_n, _d, _num_steps, _checkpoint_every,
 
 
 def main():
-    for np in [2000]:  #, 2000, 5000]:
+    for num_p in [2000]:  #, 2000, 5000]:
         for di in [200]:
             proj_k = int(di / 3)
-            run_all(np, di, 50, 2,
+            run_all(num_p, di, 50, 2,
                     _seed=17, _k=proj_k, _root_dir=CHECKPOINT_ROOT)
 
 if __name__ == "__main__":

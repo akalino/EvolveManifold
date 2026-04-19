@@ -12,6 +12,7 @@ METRIC_ROOT="${METRIC_ROOT:-$ROOT_DIR/metric_outputs}"
 SUMMARY_ROOT="${SUMMARY_ROOT:-$ROOT_DIR/metric_summaries}"
 ASSET_ROOT="${ASSET_ROOT:-$ROOT_DIR/summary_assets}"
 LOG_ROOT="${LOG_ROOT:-$ROOT_DIR/logs}"
+CLUSTER_LABEL_ROOT="${CLUSTER_LABEL_ROOT:-$ROOT_DIR/cluster_labels}"
 
 PH_MODE="${PH_MODE:-online_landmark_dynamic_support}"
 
@@ -27,6 +28,7 @@ echo "[INFO] CHECKPOINT_ROOT=$CHECKPOINT_ROOT"
 echo "[INFO] METRIC_ROOT=$METRIC_ROOT"
 echo "[INFO] SUMMARY_ROOT=$SUMMARY_ROOT"
 echo "[INFO] ASSET_ROOT=$ASSET_ROOT"
+echo "[INFO] CLUSTER_LABEL_ROOT=$CLUSTER_LABEL_ROOT"
 echo "[INFO] PH_MODE=$PH_MODE"
 
 run_cmd() {
@@ -55,6 +57,8 @@ if hasattr(run, "SUMMARY_ROOT"):
     run.SUMMARY_ROOT = r"$SUMMARY_ROOT"
 if hasattr(run, "ASSET_ROOT"):
     run.ASSET_ROOT = r"$ASSET_ROOT"
+if hasattr(run, "CLUSTER_LABEL_ROOT"):
+    run.CLUSTER_LABEL_ROOT = r"$CLUSTER_LABEL_ROOT"
 
 # Assumes run.py executes from its normal __main__ path or exposes helpers.
 # First preference: call a main() if it exists.
