@@ -129,7 +129,7 @@ def build_experiments(_n, _d, _num_steps, _checkpoint_every, _seed, _k):
     :return:
     """
     geometries = [
-        "kcube",
+        #"kcube",
         "clustered_gaussian"]
     #     "kplane",
     #     "sphere",
@@ -152,10 +152,10 @@ def build_experiments(_n, _d, _num_steps, _checkpoint_every, _seed, _k):
         #"hole_fill"
     ]
 
-    schedules = ["exponential"] #["linear", "exponential", "sigmoid"]
-    severities = ["moderate"] #["weak", "moderate", "strong"]
+    schedules = ["linear", "exponential", "sigmoid"]
+    severities = ["weak", "moderate", "strong"]
     mover_fracs = [0.25, 0.5, 1.0]
-    noises = [0.0, 0.1, 0.2, 0.3]
+    noises = [0.0] #, 0.1, 0.2, 0.3]
 
     exps = []
     for geom, mech, sched, sev, mp, noise in product(
@@ -445,8 +445,8 @@ def run_all(_n, _d, _num_steps, _checkpoint_every,
 
 
 def main():
-    for num_p in [2000]:  #, 2000, 5000]:
-        for di in [200]:
+    for num_p in [1000, 2000]:  #, 2000, 5000]:
+        for di in [50, 100, 200]:
             proj_k = int(di / 3)
             run_all(num_p, di, 50, 2,
                     _seed=17, _k=proj_k, _root_dir=CHECKPOINT_ROOT)
