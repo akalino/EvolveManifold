@@ -73,7 +73,7 @@ def step_cluster_collapse(p: ClusterParams):
             raise ValueError("cluster_labels must have same length as x")
 
         if p.fixed_indices is None:
-            move_idx = _choose_indices(len(x), p.mover_frac, rng)
+            move_idx = _choose_indices(len(x), p.mover_frac, _rng)
         else:
             move_idx = p.fixed_indices
 
