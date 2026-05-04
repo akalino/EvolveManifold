@@ -128,15 +128,15 @@ def build_experiments(_n, _d, _num_steps, _checkpoint_every, _seed, _k):
     :param _k:
     :return:
     """
-    geometries = [
-        #"kcube",
-        "clustered_gaussian"]
+    geometries = ["kcube",
+                  "clustered_gaussian",
+                  "spiked_gaussian"]
     #     "kplane",
     #     "sphere",
     #     "torus",
     #     "swiss",
     #     "paraboloid",
-    #     "spiked_gaussian",
+    #     ,
     # ]
 
     mechanisms = [
@@ -145,17 +145,17 @@ def build_experiments(_n, _d, _num_steps, _checkpoint_every, _seed, _k):
         "radial_collapse",
         "cluster_tightening",
         "cluster_merging",
-        "radial_shell_collapse",
+        #"radial_shell_collapse",
         #"nonlinear_to_sphere",
         #"nonlinear_to_torus",
         #"nonlinear_to_paraboloid",
         #"hole_fill"
     ]
 
-    schedules = ["linear", "exponential", "sigmoid"]
+    schedules = ["linear", "sigmoid"]
     severities = ["weak", "moderate", "strong"]
     mover_fracs = [0.25, 0.5, 1.0]
-    noises = [0.0] #, 0.1, 0.2, 0.3]
+    noises = [0.0, 0.1] #, 0.1, 0.2, 0.3]
 
     exps = []
     for geom, mech, sched, sev, mp, noise in product(
@@ -447,9 +447,10 @@ def run_all(_n, _d, _num_steps, _checkpoint_every,
 def main():
     for num_p in [1000, 2000]:  #, 2000, 5000]:
         for di in [50, 100, 200]:
-            proj_k = int(di / 3)
-            run_all(num_p, di, 50, 2,
-                    _seed=17, _k=proj_k, _root_dir=CHECKPOINT_ROOT)
+            for seed in [5, 17, 26, 34, 39]:
+                proj_k = int(di / 3)
+                run_all(num_p, di, 50, 2,
+                        _seed=seed, _k=proj_k, _root_dir=CHECKPOINT_ROOT)
 
 if __name__ == "__main__":
     main()
