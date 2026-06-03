@@ -14,7 +14,7 @@ ASSET_ROOT="${ASSET_ROOT:-$ROOT_DIR/summary_assets}"
 LOG_ROOT="${LOG_ROOT:-$ROOT_DIR/logs}"
 CLUSTER_LABEL_ROOT="${CLUSTER_LABEL_ROOT:-$ROOT_DIR/cluster_labels}"
 
-PH_MODE="${PH_MODE:-online_landmark_dynamic_support}"
+PH_MODE="${PH_MODE:-fixed_support_vr}"
 
 RUN_STAGE="${RUN_STAGE:-1}"
 MEASURE_STAGE="${MEASURE_STAGE:-1}"

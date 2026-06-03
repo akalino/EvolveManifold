@@ -1,3 +1,4 @@
+import argparse
 import os
 import pickle
 import re
@@ -13,6 +14,7 @@ from tqdm import tqdm
 from metrics import (
     effective_rank,
     top_k_variance_fraction,
+    mean_pairwise_distance,
     projection_residual,
     total_persistence_h1,
     max_persistence_h1,
@@ -20,7 +22,7 @@ from metrics import (
     betti_curve_from_diagram,
     betti_curve_area,
     betti_curve_peak,
-    betti_curve_change
+    betti_curve_change,
 )
 from ph_workflow import PHWorkflow
 from projectors import (
@@ -45,8 +47,53 @@ def load_checkpoint(_path):
 
 
 def get_memory_mb():
-    _kb = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
+    _kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     return float(_kb) / 1024.0
+
+
+def safe_getattr(obj, name, default=None):
+    return getattr(obj, name, default)
+
+
+def pairwise_distance_summaries(x, max_points=1000, seed=17):
+    """
+    Returns lightweight pairwise-distance summaries.
+
+    For large point clouds, this computes distances on a deterministic
+    subsample so geometric baselines remain cheap enough for trajectory runs.
+    """
+    x = np.asarray(x)
+    n = x.shape[0]
+
+    if n > max_points:
+        rng = np.random.default_rng(seed)
+        idx = rng.choice(n, size=max_points, replace=False)
+        x_eval = x[idx]
+    else:
+        x_eval = x
+
+    if x_eval.shape[0] < 2:
+        return {
+            "mean_pairwise_distance": 0.0,
+            "median_pairwise_distance": 0.0,
+            "std_pairwise_distance": 0.0,
+            "q10_pairwise_distance": 0.0,
+            "q50_pairwise_distance": 0.0,
+            "q90_pairwise_distance": 0.0,
+            "pairwise_distance_num_points": int(x_eval.shape[0]),
+        }
+
+    dists = pdist(x_eval)
+
+    return {
+        "mean_pairwise_distance": float(np.mean(dists)),
+        "median_pairwise_distance": float(np.median(dists)),
+        "std_pairwise_distance": float(np.std(dists)),
+        "q10_pairwise_distance": float(np.quantile(dists, 0.10)),
+        "q50_pairwise_distance": float(np.quantile(dists, 0.50)),
+        "q90_pairwise_distance": float(np.quantile(dists, 0.90)),
+        "pairwise_distance_num_points": int(x_eval.shape[0]),
+    }
 
 
 def parse_k_from_model(_model_name, _default=8):
@@ -54,6 +101,60 @@ def parse_k_from_model(_model_name, _default=8):
     if m is None:
         return _default
     return int(m.group(1))
+
+
+def parse_model_metadata(model_name):
+    """
+    Parse metadata from model/run folder names.
+
+    This is intentionally permissive. Missing fields are returned as None so
+    downstream summaries do not crash if older runs have different names.
+    """
+    def find_float(pattern):
+        m = re.search(pattern, model_name)
+        return float(m.group(1)) if m else None
+
+    def find_int(pattern):
+        m = re.search(pattern, model_name)
+        return int(m.group(1)) if m else None
+
+    return {
+        "n": find_int(r"n(\d+)"),
+        "d": find_int(r"d(\d+)"),
+        "k": find_int(r"k(\d+)"),
+        "seed": find_int(r"seed(\d+)"),
+        "mover_frac": find_float(r"mp([0-9.]+)"),
+        "noise": find_float(r"noise([0-9.]+)"),
+    }
+
+
+def parse_experiment_metadata(experiment_name):
+    """
+    Parse geometry/schedule/severity when encoded in the experiment folder.
+    Falls back to the raw experiment name when fields are unavailable.
+    """
+    out = {
+        "geometry": experiment_name,
+        "schedule": None,
+        "severity": None,
+    }
+
+    # Examples this can handle if names include tokens like:
+    # clustered_gaussian__linear__moderate
+    # geom-clustered_gaussian_sched-linear_sev-strong
+    m = re.search(r"geom-([^_]+(?:_[^_]+)*)", experiment_name)
+    if m:
+        out["geometry"] = m.group(1)
+
+    m = re.search(r"sched-([A-Za-z0-9_]+)", experiment_name)
+    if m:
+        out["schedule"] = m.group(1)
+
+    m = re.search(r"sev-([A-Za-z0-9_]+)", experiment_name)
+    if m:
+        out["severity"] = m.group(1)
+
+    return out
 
 
 def get_projection_fn(_mechanism, _model_name):
@@ -91,6 +192,8 @@ def measure_run(_run_dir, _too_big=False, _ph_mode="full_vr"):
     experiment = parts[-3]
     mechanism = parts[-2]
     model = parts[-1]
+    experiment_meta = parse_experiment_metadata(experiment)
+    model_meta = parse_model_metadata(model)
 
     proj_fn = get_projection_fn(mechanism, model)
     ckpt_paths = checkpoint_paths_for_run(_run_dir)
@@ -120,7 +223,7 @@ def measure_run(_run_dir, _too_big=False, _ph_mode="full_vr"):
         t0 = time.perf_counter()
         dgms = ph.diagrams(x, epoch)
         ph_time_sec = time.perf_counter() - t0
-        print(f"Diagram computation took {ph_time_sec} seconds")
+        # print(f"Diagram computation took {ph_time_sec} seconds")
         mem_mb = get_memory_mb()
 
         dgm1 = dgms[1]
@@ -132,31 +235,59 @@ def measure_run(_run_dir, _too_big=False, _ph_mode="full_vr"):
                 max_val = 1.0
             betti_grid = np.linspace(0.0, ph.max_edge_len, 200)
             betti_ref_curve_h1 = betti_curve_from_diagram(dgm1, betti_grid)
+        geom_summaries = pairwise_distance_summaries(
+            x,
+            max_points=1000,
+            seed=model_meta.get("seed") or 17,
+        )
 
         row = {
             "experiment": experiment,
+            "geometry": experiment_meta["geometry"],
             "mechanism": mechanism,
             "model": model,
+            "schedule": experiment_meta["schedule"],
+            "severity": experiment_meta["severity"],
+            "n": model_meta["n"],
+            "d": model_meta["d"],
+            "k": model_meta["k"],
+            "seed": model_meta["seed"],
+            "mover_frac": model_meta["mover_frac"],
+            "noise": model_meta["noise"],
             "epoch": epoch,
+
+            # Spectral metrics
             "effective_rank": effective_rank(x),
             "top_k_variance_fraction": top_k_variance_fraction(
                 x,
                 parse_k_from_model(model),
             ),
-            #"mean_pairwise_distance": mean_pairwise_distance(x),
+
+            # Geometric metrics
+            **geom_summaries,
+
+            # PH workflow metadata
+            "ph_support_edges": safe_getattr(ph, "last_support_edges", None),
+            "ph_support_refresh": safe_getattr(ph, "last_support_refresh", None),
+            "ph_trigger": safe_getattr(ph, "last_trigger", None),
             "ph_mode": _ph_mode,
             "ph_recomputed": ph.last_recomputed,
             "ph_time_sec": ph_time_sec,
             "ph_mem": mem_mb,
             "ph_landmarks": ph.n_landmarks,
             "ph_event_score": ph.last_event_score,
-            "total_persistence_h1": total_persistence_h1(dgms[1]),
-            "max_persistence_h1": max_persistence_h1(dgms[1]),
-            "top5_persistence_h1": top5_persistence_h1(dgms[1]),
+
+            # Topological summaries
+            "total_persistence_h1": total_persistence_h1(dgm1),
+            "max_persistence_h1": max_persistence_h1(dgm1),
+            "top5_persistence_h1": top5_persistence_h1(dgm1),
             "betti_curve_area_h1": betti_curve_area(dgm1, betti_grid),
             "betti_curve_peak_h1": betti_curve_peak(dgm1, betti_grid),
-            "betti_curve_change_h1": betti_curve_change(dgm1,
-                                                        betti_ref_curve_h1, betti_grid)
+            "betti_curve_change_h1": betti_curve_change(
+                dgm1,
+                betti_ref_curve_h1,
+                betti_grid,
+            ),
         }
 
         if proj_fn is not None:
@@ -178,6 +309,10 @@ def find_run_dirs(_root_dir="evolve_checkpoints"):
     return run_dirs
 
 
+def clean_name(s):
+    return str(s).replace(os.sep, "_").replace(" ", "_")
+
+
 def main(_root_dir="evolve_checkpoints",
          _out_dir="metric_outputs",
          _ph_mode="full_vr"):
@@ -187,10 +322,23 @@ def main(_root_dir="evolve_checkpoints",
     dfs = []
 
     for i, run_dir in enumerate(run_dirs, start=1):
-        parts = run_dir.split(os.sep)
-        mechanism = parts[-2]
-        model = parts[-1]
-        out_name = f"{_ph_mode}-{mechanism}__{model}.csv"
+        parts = run_dir.rstrip(os.sep).split(os.sep)
+
+        if len(parts) >= 3:
+            experiment = parts[-3]
+            mechanism = parts[-2]
+            model = parts[-1]
+        else:
+            experiment = "unknown_experiment"
+            mechanism = "unknown_mechanism"
+            model = parts[-1]
+
+        out_name = (
+            f"{_ph_mode}__"
+            f"{clean_name(experiment)}__"
+            f"{clean_name(mechanism)}__"
+            f"{clean_name(model)}.csv"
+        )
         out_path = os.path.join(_out_dir, out_name)
 
         if os.path.exists(out_path):
@@ -216,16 +364,38 @@ def main(_root_dir="evolve_checkpoints",
 
 
 if __name__ == "__main__":
-    main(_ph_mode="full_vr")
-    #main(_root_dir=CHECKPOINT_ROOT,
-    #     _out_dir=METRIC_ROOT,
-    #    _ph_mode="landmark_vr")
-    #main(_ph_mode="fixed_support_vr")
-    #main(_ph_mode="fixed_knn_vr")
-    #main(_ph_mode="event_driven")
-    #main(_root_dir=CHECKPOINT_ROOT,
-    #     _out_dir=METRIC_ROOT,
-    #     _ph_mode="online_landmark_event")
-    #main(_root_dir=CHECKPOINT_ROOT,
-    #     _out_dir=METRIC_ROOT,
-    #     _ph_mode="online_landmark_dynamic_support")
+    parser = argparse.ArgumentParser(
+        description="Measure collapse metrics over checkpointed trajectories."
+    )
+    parser.add_argument(
+        "--root-dir",
+        default=CHECKPOINT_ROOT,
+        help="Directory containing checkpointed trajectory runs.",
+    )
+    parser.add_argument(
+        "--out-dir",
+        default=METRIC_ROOT,
+        help="Directory where metric CSVs will be written.",
+    )
+    parser.add_argument(
+        "--ph-mode",
+        default="online_landmark_dynamic_support",
+        choices=[
+            "full_vr",
+            "landmark_vr",
+            "skip_vr",
+            "fixed_support_vr",
+            "fixed_knn_vr",
+            "event_driven",
+            "online_landmark_event",
+            "online_landmark_dynamic_support",
+        ],
+        help="Persistent homology workflow mode.",
+    )
+    args = parser.parse_args()
+
+    main(
+        _root_dir=args.root_dir,
+        _out_dir=args.out_dir,
+        _ph_mode=args.ph_mode,
+    )
