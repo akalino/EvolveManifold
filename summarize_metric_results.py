@@ -7,6 +7,10 @@ import traceback
 import numpy as np
 import pandas as pd
 
+from tqdm import tqdm
+
+from detection_time import DetectionConfig, detection_time
+
 
 FILE_RE = re.compile(
     r"^(?P<ph_mode>.+?)-(?P<mechanism>.+?)__"
@@ -19,6 +23,18 @@ FILE_RE = re.compile(
     r"__seed(?P<seed>\d+)\.csv$"
 )
 
+
+DETECTION_METRIC_DIRECTIONS = {
+    "effective_rank": False,
+    "mean_pairwise_distance": False,
+    "projection_residual": False,
+    "total_persistence_h1": False,
+    "max_persistence_h1": False,
+    "top5_persistence_h1": False,
+    "betti_curve_area_h1": False,
+    "betti_curve_peak_h1": False,
+    "top_k_variance_fraction": True,
+}
 
 def parse_metadata_from_filename(path):
     name = os.path.basename(path)
@@ -99,6 +115,36 @@ def normalize_metric_direction(df):
     return df
 
 
+def first_sustained_detection_epoch(
+    df,
+    col,
+    threshold=0.10,
+    window=2,
+    return_T_plus_1=True,
+):
+    """
+    First epoch where collapse score stays above threshold for `window`
+    consecutive checkpoints.
+    """
+    tmp = df.loc[df[col].notna(), ["epoch", col]].copy()
+    tmp = tmp.sort_values("epoch")
+
+    if len(tmp) < window:
+        return np.nan
+
+    scores = tmp[col].to_numpy(dtype=float)
+    epochs = tmp["epoch"].to_numpy()
+
+    last_start = len(scores) - window + 1
+    for i in range(last_start):
+        if np.all(scores[i : i + window] >= threshold):
+            return epochs[i]
+
+    if return_T_plus_1:
+        return epochs[-1] + 1
+
+    return np.inf
+
 def summarize_one_run(df):
     """
     Creates a one-row summary for one result file.
@@ -134,7 +180,7 @@ def summarize_one_run(df):
         "total_persistence_h1",
         "betti_curve_area_h1",
         "betti_curve_peak_h1",
-        "betti_curve_change_h1"
+        "betti_curve_change_h1",
     ]
 
     for col in metric_cols:
@@ -162,8 +208,14 @@ def summarize_one_run(df):
         "collapse_total_persistence_h1",
         "collapse_betti_curve_area_h1",
         "collapse_betti_curve_peak_h1",
-        "collapse_betti_curve_change_h1"
+        "collapse_betti_curve_change_h1",
     ]
+
+    det_cfg = DetectionConfig(
+        threshold=0.10,
+        window=2,
+        return_T_plus_1=True,
+    )
 
     for col in collapse_cols:
         if col not in df.columns:
@@ -175,12 +227,34 @@ def summarize_one_run(df):
             continue
 
         tmp = df.loc[vals.notna(), ["epoch", col]].copy()
+        tmp = tmp.sort_values("epoch")
 
         out[f"{col}_end"] = vals.iloc[-1]
         out[f"{col}_max"] = vals_nonan.max()
         out[f"{col}_argmax_epoch"] = df.loc[vals_nonan.idxmax(), "epoch"]
-        out[f"{col}_auc"] = np.trapz(tmp[col].to_numpy(),
-                                     x=tmp["epoch"].to_numpy())
+        out[f"{col}_auc"] = np.trapz(
+            tmp[col].to_numpy(),
+            x=tmp["epoch"].to_numpy(),
+        )
+
+        try:
+            # Collapse columns are already oriented so larger means more collapse.
+            # Therefore they increase with collapse.
+            t_idx = detection_time(
+                tmp[col].to_numpy(),
+                increases_with_collapse=True,
+                config=det_cfg,
+            )
+
+            valid_epochs = tmp["epoch"].to_numpy()
+
+            if t_idx >= len(valid_epochs):
+                out[f"{col}_t_detect"] = valid_epochs[-1] + 1
+            else:
+                out[f"{col}_t_detect"] = valid_epochs[int(t_idx)]
+
+        except Exception:
+            out[f"{col}_t_detect"] = np.nan
 
     return pd.DataFrame([out])
 
@@ -195,12 +269,15 @@ def load_all_results(input_dir):
     paths = sorted(glob.glob(os.path.join(input_dir, "*.csv")))
     dfs = []
 
-    for path in paths:
+    for path in tqdm(paths):
         meta = parse_metadata_from_filename(path)
         if meta is None:
             continue
 
-        df = pd.read_csv(path)
+        try:
+            df = pd.read_csv(path)
+        except Exception:
+            print(path)
 
         metric_cols = [
             "epoch",

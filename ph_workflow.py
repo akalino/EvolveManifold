@@ -164,12 +164,51 @@ def _knn_identity_drift(_knn_old, _knn_new):
 
 def _knn_rank_drift(_knn_old, _knn_new):
     """
+    Among neighbors that are still present, how much did their local ordering change?
+    Mean normalized rank displacement for shared kNN neighbors.
 
     :param _knn_old:
     :param _knn_new:
-    :return:
+    :return: Returns a value in [0, 1] approximately:
+      0 means shared neighbors keep the same ranks;
+      1 means either no neighbors are shared or shared neighbors move maximally.
     """
-    pass
+    _knn_old = np.asarray(_knn_old)
+    _knn_new = np.asarray(_knn_new)
+
+    if _knn_old.shape != _knn_new.shape:
+        raise ValueError("kNN arrays must have the same shape")
+
+    n, k = _knn_old.shape
+    if k <= 1:
+        return 0.0
+
+    drifts = []
+
+    for old_row, new_row in zip(_knn_old, _knn_new):
+        old_rank = {int(idx): r for r, idx in enumerate(old_row)}
+        new_rank = {int(idx): r for r, idx in enumerate(new_row)}
+
+        shared = set(old_rank) & set(new_rank)
+
+        if not shared:
+            drifts.append(1.0)
+            continue
+
+        # Normalize by maximum possible rank displacement k - 1.
+        rank_moves = [
+            abs(old_rank[j] - new_rank[j]) / float(k - 1)
+            for j in shared
+        ]
+
+        # Penalize missing neighbors too, so this complements identity drift.
+        missing_frac = 1.0 - (len(shared) / float(k))
+        shared_rank_drift = float(np.mean(rank_moves)) if rank_moves else 0.0
+
+        # Conservative combination.
+        drifts.append(max(shared_rank_drift, missing_frac))
+
+    return float(np.mean(drifts))
 
 
 def _nearest_landmark_assignment(_x, _landmarks, _return_dist=False):
@@ -264,7 +303,39 @@ def _support_edge_recall(_support_edges, _x, _k):
 
 
 def _support_edge_precision(_support_edges, _x, _k):
-    pass
+    """
+    Compare cached support edges to current kNN candidate edges.
+
+    Precision is |support intersect current_knn| / |support|.
+    High precision means most cached support edges are still locally relevant.
+    :param _support_edges:
+    :param _x:
+    :param _k:
+    :return:
+    """
+    support_edges = set()
+    for i, j in _support_edges:
+        a = min(int(i), int(j))
+        b = max(int(i), int(j))
+        if a != b:
+            support_edges.add((a, b))
+
+    if len(support_edges) == 0:
+        return 1.0
+
+    knn_idx = _compute_knn_indices(_x, _k)
+    curr_set = set()
+
+    for i in range(_x.shape[0]):
+        for j in knn_idx[i]:
+            a = min(i, int(j))
+            b = max(i, int(j))
+            if a != b:
+                curr_set.add((a, b))
+
+    overlap = len(support_edges & curr_set)
+    return float(overlap / len(support_edges))
+
 
 def _compute_event_diagnostics(_x_prev, _x_new, _k,
                                _landmarks_prev, _landmarks_new,
@@ -295,10 +366,13 @@ def _compute_event_diagnostics(_x_prev, _x_new, _k,
         knn_prev = _compute_knn_indices(_x_prev, _k)
         knn_new = _compute_knn_indices(_x_new, _k)
         out['knn_identity_drift'] = _knn_identity_drift(knn_prev, knn_new)
+        out['knn_rank_drift'] = _knn_rank_drift(knn_prev, knn_new)
 
         if _support_edges is not None:
             out['support_edge_recall'] = _support_edge_recall(_support_edges,
                                                               _x_new, _k)
+            out["support_edge_precision"] = _support_edge_precision(_support_edges,
+                                                                    _x_new, _k)
 
     if _landmarks_prev is not None and _landmarks_new is not None:
         assign_prev = _nearest_landmark_assignment(_x_prev, _landmarks_prev)
@@ -788,13 +862,17 @@ class PHWorkflow:
         cov_prev = _landmark_coverage_stats(self.prev_x_full, self.prev_x_use)
         cov_new = _landmark_coverage_stats(_x_full, _x_use)
 
+        support_precision = _support_edge_precision(self.support_edges, _x_use, self.knn_k)
+
         diag = {
             "edge_drift": float(edge_drift),
             "knn_identity_drift": float(_knn_identity_drift(knn_prev, knn_new)),
+            "knn_rank_drift": float(_knn_rank_drift(knn_prev, knn_new)),
             "coverage_drift": float(abs(cov_new["q95"] - cov_prev["q95"])),
             "support_edge_recall": float(
                 _support_edge_recall(self.support_edges, _x_use, self.knn_k)
             ),
+            "support_edge_precision": float(support_precision)
         }
 
         event_score = _compute_composite_event_score(diag)

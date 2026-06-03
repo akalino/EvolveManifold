@@ -7,6 +7,8 @@ The goal is to:
 - Produce **interpretable visualizations**
 - Build toward **benchmark-quality results**
 
+There exist important, realistic regimes where spectral metrics fail to detect collapse early, but topological metrics succeed.
+
 ---
 
 # Overview

@@ -30,6 +30,51 @@ SUMMARY_ROOT = os.path.join(EXTERNAL_ROOT, "metric_summaries")
 ASSET_ROOT = os.path.join(EXTERNAL_ROOT, "summary_assets")
 CLUSTER_LABEL_ROOT = os.path.join(EXTERNAL_ROOT, "cluster_labels")
 
+PAPER_FOCUSED_GRID = {
+    "geometries": [
+        "clustered_gaussian",
+        "spiked_gaussian",
+        "sphere",
+        "torus",
+    ],
+    "mechanisms": [
+        "linear_to_kplane",
+        "radial_collapse",
+        "cluster_tightening",
+        "cluster_merging",
+        "hole_fill",
+    ],
+    "schedules": [
+        "linear",
+        "sigmoid",
+    ],
+    "severities": [
+        "moderate",
+        "strong",
+    ],
+    "mover_fracs": [
+        0.25,
+        1.0,
+    ],
+    "noises": [
+        0.0,
+    ],
+    "n_values": [
+        1000,
+    ],
+    "d_values": [
+        50,
+        100,
+    ],
+    "seeds": [
+        5,
+        17,
+        26,
+    ],
+    "num_steps": 50,
+    "checkpoint_every": 2,
+}
+
 
 def make_run_stem(_exp):
     return(
@@ -117,7 +162,20 @@ def get_mechanism_params(_mechanism, _severity):
     return {"eps_0": 0.5, "eps_t": 0.005, "relax": 1.0}
 
 
-def build_experiments(_n, _d, _num_steps, _checkpoint_every, _seed, _k):
+def is_valid_combo(_geometry, _mechanism):
+    cluster_mechanisms = {"cluster_tightening", "cluster_merging"}
+    topology_mechanisms = {"hole_fill", "loop_pinch", "bridge_across_hole"}
+
+    if _mechanism in cluster_mechanisms:
+        return _geometry == "clustered_gaussian"
+
+    if _mechanism in topology_mechanisms:
+        return _geometry == "torus"
+
+    return True
+
+
+def build_experiments(_n, _d, _num_steps, _checkpoint_every, _seed, _k, _grid):
     """
 
     :param _n:
@@ -126,46 +184,29 @@ def build_experiments(_n, _d, _num_steps, _checkpoint_every, _seed, _k):
     :param _checkpoint_every:
     :param _seed:
     :param _k:
+    :param _grid: paper search grid
     :return:
     """
-    geometries = [
-        #"kcube",
-        "clustered_gaussian"]
-    #     "kplane",
-    #     "sphere",
-    #     "torus",
-    #     "swiss",
-    #     "paraboloid",
-    #     "spiked_gaussian",
-    # ]
 
-    mechanisms = [
-       #"linear_to_kplane",
-        #"nonlinear_to_kplane",
-        "radial_collapse",
-        "cluster_tightening",
-        "cluster_merging",
-        "radial_shell_collapse",
-        #"nonlinear_to_sphere",
-        #"nonlinear_to_torus",
-        #"nonlinear_to_paraboloid",
-        #"hole_fill"
-    ]
+    if _grid is None:
+        _grid = PAPER_FOCUSED_GRID
 
-    schedules = ["linear", "exponential", "sigmoid"]
-    severities = ["weak", "moderate", "strong"]
-    mover_fracs = [0.25, 0.5, 1.0]
-    noises = [0.0] #, 0.1, 0.2, 0.3]
+    geometries = _grid["geometries"]
+    mechanisms = _grid["mechanisms"]
+    schedules = _grid["schedules"]
+    severities = _grid["severities"]
+    mover_fracs = _grid["mover_fracs"]
+    noises = _grid["noises"]
 
     exps = []
-    for geom, mech, sched, sev, mp, noise in product(
-        geometries,
-        mechanisms,
-        schedules,
-        severities,
-        mover_fracs,
-        noises,
-    ):
+    for geom, mech, sched, sev, mp, noise in product(geometries,
+                                                     mechanisms,
+                                                     schedules,
+                                                     severities,
+                                                     mover_fracs,
+                                                     noises):
+        if not is_valid_combo(geom, mech):
+            continue
         exps.append(
             TrajectoryExperiment(
                 base_geometry=geom,
@@ -338,6 +379,36 @@ def build_step(_exp, _x0=None):
     )
 
 
+def append_manifest_row(_exp, _run_dir, _manifest_path, _status):
+    os.makedirs(os.path.dirname(_manifest_path), exist_ok=True)
+
+    row = {
+        "run_id": make_run_stem(_exp),
+        "geometry": _exp.base_geometry,
+        "mechanism": _exp.mechanism,
+        "schedule": _exp.schedule,
+        "severity": _exp.severity,
+        "mover_frac": _exp.mover_frac,
+        "noise": _exp.noise,
+        "n": _exp.n,
+        "d": _exp.d,
+        "k": _exp.k,
+        "seed": _exp.seed,
+        "num_checkpoints": int(_exp.total_steps / _exp.checkpoint_every) + 1,
+        "total_steps": _exp.total_steps,
+        "checkpoint_interval": _exp.checkpoint_every,
+        "status": _status,
+        "output_path": _run_dir,
+    }
+
+    write_header = not os.path.exists(_manifest_path)
+
+    with open(_manifest_path, "a") as f:
+        if write_header:
+            f.write(",".join(row.keys()) + "\n")
+        f.write(",".join(str(v) for v in row.values()) + "\n")
+
+
 def run_experiment(_exp, _root_dir="evolve_checkpoints", _label_root=None):
     """
 
@@ -394,9 +465,11 @@ def run_experiment(_exp, _root_dir="evolve_checkpoints", _label_root=None):
     experiment = "collapse_ph"
     mechanism = _exp.mechanism
     run_dir = os.path.join(root_dir, experiment, mechanism, model_name)
+    manifest_path = os.path.join(SUMMARY_ROOT, "benchmark_manifest.csv")
 
     if os.path.exists(run_dir):
         print(f"skipping existing run: {run_dir}")
+        append_manifest_row(_exp, run_dir, manifest_path, "skipped_existing")
         return
 
     ckpt = CheckpointManager(
@@ -414,42 +487,58 @@ def run_experiment(_exp, _root_dir="evolve_checkpoints", _label_root=None):
              _exp.mover_frac,
              _exp.seed,
              ckpt)
+    append_manifest_row(_exp, run_dir, manifest_path, "completed")
 
 
-def run_all(_n, _d, _num_steps, _checkpoint_every,
-            _seed=None, _k=8, _root_dir="evolve_checkpoints"):
-    """
-
-    :param _n:
-    :param _d:
-    :param _num_steps:
-    :param _checkpoint_every:
-    :param _seed:
-    :param _k:
-    :return:
-    """
-    exps = build_experiments(_n,
-                             _d,
-                             _num_steps,
-                             _checkpoint_every,
-                             _seed,
-                             _k)
+def run_all(
+    _n,
+    _d,
+    _num_steps,
+    _checkpoint_every,
+    _seed=None,
+    _k=8,
+    _root_dir="evolve_checkpoints",
+    _grid=None,
+):
+    exps = build_experiments(
+        _n,
+        _d,
+        _num_steps,
+        _checkpoint_every,
+        _seed,
+        _k,
+        _grid=_grid,
+    )
 
     for i, exp in enumerate(exps, start=1):
-        print(f"[{i}/{len(exps)}] "
-              f"{exp.base_geometry} | {exp.mechanism} | "
-              f"n={_n} | d={_d}"
-              f"{exp.schedule} | {exp.severity} | "
-              f"mp={exp.mover_frac} | noise={exp.noise}")
+        print(
+            f"[{i}/{len(exps)}] "
+            f"{exp.base_geometry} | {exp.mechanism} | "
+            f"n={_n} | d={_d} | "
+            f"{exp.schedule} | {exp.severity} | "
+            f"mp={exp.mover_frac} | noise={exp.noise} | seed={exp.seed}"
+        )
         run_experiment(exp, _root_dir)
 
 
 def main():
-    for num_p in [1000, 2000]:  #, 2000, 5000]:
-        for di in [50, 100, 200]:
-            proj_k = int(di / 3)
-            run_all(num_p, di, 50, 2,
-                    _seed=17, _k=proj_k, _root_dir=CHECKPOINT_ROOT)
+    grid = PAPER_FOCUSED_GRID
+
+    for num_p in grid["n_values"]:
+        for di in grid["d_values"]:
+            for seed in grid["seeds"]:
+                proj_k = int(di / 3)
+                run_all(
+                    num_p,
+                    di,
+                    grid["num_steps"],
+                    grid["checkpoint_every"],
+                    _seed=seed,
+                    _k=proj_k,
+                    _root_dir=CHECKPOINT_ROOT,
+                    _grid=grid,
+                )
+
 
 if __name__ == "__main__":
     main()
