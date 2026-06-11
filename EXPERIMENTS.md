@@ -169,3 +169,64 @@ x = sanitize_points(x)
 x = standardize_points(x)
 x = PCA(n_components=15).fit_transform(x)
 z = UMAP(n_neighbors=100).fit_transform(x)
+```
+
+Table III and detection time plots
+
+```python measure_checkpoints_parallel_parquet_tranched.py \
+  --root-dir /mnt/wd_black/research/evolve_collapse/evolve_checkpoints \
+  --out-dir /mnt/wd_black/research/evolve_collapse/metric_outputs \
+  --ph-mode online_landmark_dynamic_support \
+  --tranche canonical \
+  --workers 1
+ ```
+
+Benchmark slice
+```angular2html
+python measure_checkpoints_parallel_parquet_tranched.py \
+  --root-dir /mnt/wd_black/research/evolve_collapse/evolve_checkpoints \
+  --out-dir /mnt/wd_black/research/evolve_collapse/metric_outputs \
+  --ph-mode online_landmark_dynamic_support \
+  --tranche primary_d50 \
+  --workers 1
+```
+
+Robustness 
+```
+python measure_checkpoints_parallel_parquet_tranched.py \
+  --root-dir /mnt/wd_black/research/evolve_collapse/evolve_checkpoints \
+  --out-dir /mnt/wd_black/research/evolve_collapse/metric_outputs \
+  --ph-mode online_landmark_dynamic_support \
+  --tranche primary_d100 \
+  --workers 1
+```
+
+Noise robustness
+```angular2html
+python measure_checkpoints_parallel_parquet_tranched.py \
+  --root-dir /mnt/wd_black/research/evolve_collapse/evolve_checkpoints \
+  --out-dir /mnt/wd_black/research/evolve_collapse/metric_outputs \
+  --ph-mode online_landmark_dynamic_support \
+  --tranche noise_robustness \
+  --workers 1
+```
+
+Sample scaling
+```angular2html
+python measure_checkpoints_parallel_parquet_tranched.py \
+  --root-dir /mnt/wd_black/research/evolve_collapse/evolve_checkpoints \
+  --out-dir /mnt/wd_black/research/evolve_collapse/metric_outputs \
+  --ph-mode online_landmark_dynamic_support \
+  --tranche n_scaling \
+  --workers 1
+```
+
+Full VR audit
+```angular2html
+python measure_checkpoints_parallel_parquet_tranched.py \
+  --root-dir /mnt/wd_black/research/evolve_collapse/evolve_checkpoints \
+  --out-dir /mnt/wd_black/research/evolve_collapse/metric_outputs \
+  --ph-mode full_vr \
+  --tranche ph_audit \
+  --workers 1
+```

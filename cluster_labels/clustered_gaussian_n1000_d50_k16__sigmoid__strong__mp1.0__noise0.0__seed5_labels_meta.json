@@ -1,0 +1,13 @@
+{
+  "base_geometry": "clustered_gaussian",
+  "n": 1000,
+  "d": 50,
+  "k": 16,
+  "schedule": "sigmoid",
+  "severity": "strong",
+  "mover_frac": 1.0,
+  "noise": 0.0,
+  "seed": 5,
+  "mechanism": "cluster_merging",
+  "num_clusters": 4
+}

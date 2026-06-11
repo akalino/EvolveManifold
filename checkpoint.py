@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import pickle
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -23,6 +23,7 @@ class CheckpointManager:
     _every: int = 10
     _save_rng: bool = False
     _overwrite: bool = True
+    _extra_payload: dict = field(default_factory=dict)
 
     def __post_init__(self):
         if self._every <= 0:
@@ -66,11 +67,20 @@ class CheckpointManager:
         :param _x: point cloud state
         :param _epoch:
         """
-        payload = {"x": np.asarray(_x, dtype=float),
-                   "epoch": int(_epoch),
-                   "experiment": self._experiment,
-                   "mechanism": self._mechanism,
-                   "model": self._model}
+        payload = {
+            "x": np.asarray(_x, dtype=float),
+            "epoch": int(_epoch),
+            "experiment": self._experiment,
+            "mechanism": self._mechanism,
+            "model": self._model,
+        }
+
+        for key, value in self._extra_payload.items():
+            if isinstance(value, np.ndarray):
+                payload[key] = value.copy()
+            else:
+                payload[key] = value
+
         with open(self._ckpt_path(int(_epoch)), "wb") as f:
             pickle.dump(payload, f, protocol=pickle.HIGHEST_PROTOCOL)
 

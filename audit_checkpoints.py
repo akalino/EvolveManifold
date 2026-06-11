@@ -132,6 +132,124 @@ def distance_summary(x, max_points=1000):
     }
 
 
+def extract_labels(payload):
+    """
+    Extract one label per point from a checkpoint payload when available.
+
+    Supported keys:
+    - labels
+    - y
+    - cluster_labels
+
+    Returns None when labels are missing or malformed.
+    """
+    for key in ["labels", "y", "cluster_labels"]:
+        if key in payload:
+            labels = np.asarray(payload[key])
+            if labels.ndim == 1:
+                return labels.astype(int)
+    return None
+
+
+def cluster_distance_summary(x, labels, max_points_per_cluster=500):
+    """
+    Compute cluster-specific diagnostics.
+
+    These are especially useful for distinguishing:
+    - cluster_tightening: within-cluster distances should decrease
+    - cluster_merging: centroid spread / between-centroid distance should decrease
+
+    Returns NaNs when labels are unavailable or invalid.
+    """
+    x = np.asarray(x)
+
+    nan_result = {
+        "num_clusters": np.nan,
+        "within_cluster_mean_dist": np.nan,
+        "within_cluster_median_dist": np.nan,
+        "within_cluster_q90_dist": np.nan,
+        "cluster_centroid_spread": np.nan,
+        "between_centroid_mean_dist": np.nan,
+        "between_centroid_median_dist": np.nan,
+        "between_centroid_q90_dist": np.nan,
+    }
+
+    if labels is None:
+        return nan_result
+
+    labels = np.asarray(labels)
+    if labels.ndim != 1 or labels.shape[0] != x.shape[0]:
+        return nan_result
+
+    unique_labels = np.unique(labels)
+    if len(unique_labels) < 2:
+        out = nan_result.copy()
+        out["num_clusters"] = int(len(unique_labels))
+        return out
+
+    rng = np.random.default_rng(0)
+
+    within_dists = []
+    centroids = []
+
+    for lab in unique_labels:
+        idx = np.where(labels == lab)[0]
+        if len(idx) == 0:
+            continue
+
+        x_lab = x[idx]
+        centroids.append(x_lab.mean(axis=0))
+
+        if len(x_lab) > max_points_per_cluster:
+            sub_idx = rng.choice(len(x_lab), size=max_points_per_cluster, replace=False)
+            x_lab_eval = x_lab[sub_idx]
+        else:
+            x_lab_eval = x_lab
+
+        if len(x_lab_eval) >= 2:
+            within_dists.append(pdist(x_lab_eval))
+
+    if centroids:
+        centroids = np.vstack(centroids)
+    else:
+        return nan_result
+
+    if within_dists:
+        within_all = np.concatenate(within_dists)
+        within_mean = float(np.mean(within_all))
+        within_median = float(np.median(within_all))
+        within_q90 = float(np.quantile(within_all, 0.90))
+    else:
+        within_mean = np.nan
+        within_median = np.nan
+        within_q90 = np.nan
+
+    centroid_center = centroids.mean(axis=0, keepdims=True)
+    centroid_radii = np.linalg.norm(centroids - centroid_center, axis=1)
+    centroid_spread = float(np.mean(centroid_radii))
+
+    if len(centroids) >= 2:
+        between = pdist(centroids)
+        between_mean = float(np.mean(between))
+        between_median = float(np.median(between))
+        between_q90 = float(np.quantile(between, 0.90))
+    else:
+        between_mean = np.nan
+        between_median = np.nan
+        between_q90 = np.nan
+
+    return {
+        "num_clusters": int(len(unique_labels)),
+        "within_cluster_mean_dist": within_mean,
+        "within_cluster_median_dist": within_median,
+        "within_cluster_q90_dist": within_q90,
+        "cluster_centroid_spread": centroid_spread,
+        "between_centroid_mean_dist": between_mean,
+        "between_centroid_median_dist": between_median,
+        "between_centroid_q90_dist": between_q90,
+    }
+
+
 def audit_run(run_dir):
     meta = parse_meta(run_dir)
     pairs = checkpoint_paths_for_run(run_dir)
@@ -171,6 +289,8 @@ def audit_run(run_dir):
         unique_rows_approx = int(np.unique(np.round(x, decimals=10), axis=0).shape[0])
 
         dist = distance_summary(x)
+        labels = extract_labels(payload)
+        cluster_dist = cluster_distance_summary(x, labels)
 
         row = {
             **meta,
@@ -192,6 +312,8 @@ def audit_run(run_dir):
             "rel_step_diff": rel_step_diff,
             "effective_rank": effective_rank(x),
             **dist,
+            **cluster_dist,
+            "has_cluster_labels": labels is not None,
             "payload_keys": ",".join(sorted(payload.keys())),
         }
         rows.append(row)
@@ -285,10 +407,36 @@ def main():
                 last_eff_rank=("effective_rank", "last"),
                 first_mean_dist=("mean_dist", "first"),
                 last_mean_dist=("mean_dist", "last"),
+                first_within_cluster_mean_dist=("within_cluster_mean_dist", "first"),
+                last_within_cluster_mean_dist=("within_cluster_mean_dist", "last"),
+                first_cluster_centroid_spread=("cluster_centroid_spread", "first"),
+                last_cluster_centroid_spread=("cluster_centroid_spread", "last"),
+                first_between_centroid_mean_dist=("between_centroid_mean_dist", "first"),
+                last_between_centroid_mean_dist=("between_centroid_mean_dist", "last"),
                 min_unique_rows=("unique_rows_approx", "min"),
+                has_cluster_labels=("has_cluster_labels", "max"),
             )
             .reset_index()
         )
+
+        for num_col, den_col, out_col in [
+            (
+                "last_within_cluster_mean_dist",
+                "first_within_cluster_mean_dist",
+                "within_cluster_mean_dist_ratio",
+            ),
+            (
+                "last_cluster_centroid_spread",
+                "first_cluster_centroid_spread",
+                "cluster_centroid_spread_ratio",
+            ),
+            (
+                "last_between_centroid_mean_dist",
+                "first_between_centroid_mean_dist",
+                "between_centroid_mean_dist_ratio",
+            ),
+        ]:
+            summary[out_col] = summary[num_col] / (summary[den_col].abs() + 1e-12)
 
         summary_path = out.with_name(out.stem + "_summary.csv")
         summary.to_csv(summary_path, index=False)
@@ -304,6 +452,26 @@ def main():
             | (summary["min_unique_rows"] <= 2)
         ]
         print(deg[["mechanism", "run_dir", "first_x_std", "min_unique_rows"]].head(20))
+
+        print("\nCluster-mechanism diagnostics:")
+        cluster_diag = summary[
+            summary["mechanism"].isin(["cluster_tightening", "cluster_merging"])
+        ]
+        cluster_cols = [
+            "mechanism",
+            "run_dir",
+            "has_cluster_labels",
+            "first_within_cluster_mean_dist",
+            "last_within_cluster_mean_dist",
+            "within_cluster_mean_dist_ratio",
+            "first_cluster_centroid_spread",
+            "last_cluster_centroid_spread",
+            "cluster_centroid_spread_ratio",
+        ]
+        if len(cluster_diag) > 0:
+            print(cluster_diag[cluster_cols].head(30))
+        else:
+            print("No cluster_tightening or cluster_merging runs found.")
 
 
 if __name__ == "__main__":

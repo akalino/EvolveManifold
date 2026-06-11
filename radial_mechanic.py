@@ -1,5 +1,7 @@
-""" Radial collapse mechanisms."""
+"""Radial collapse mechanisms."""
+
 from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Optional
 
@@ -7,12 +9,13 @@ import numpy as np
 
 from schedulers import get_schedule_value
 
-
 Array = np.ndarray
+
 
 @dataclass
 class RadialParams:
     """Dataclass to hold radial collapse parameters."""
+
     schedule: str
     start_strength: float
     end_strength: float
@@ -20,36 +23,29 @@ class RadialParams:
     mover_frac: float = 1.0
     center_mode: str = "centroid"  # supports centroid, origin, fixed
     center: Optional[Array] = None
-    target_radius: float = 0.0
+
+    # Absolute target radius. If None, use target_radius_frac times each
+    # point's initial radius from the center.
+    target_radius: Optional[float] = None
+
+    # Nonzero final radius fraction used by default. This prevents strong
+    # radial collapse from degenerating to a single point.
+    target_radius_frac: float = 0.15
+
+    # supports contract_to_center, to_radius
     mode: str = "to_radius"
     fixed_indices: Optional[Array] = None
     seed: int = 0
 
 
-Array = np.ndarray
-
-
 def _choose_indices(_n, _mover_frac, _rng):
-    """
-    Chooses the indices of points moved.
-    :param _n: Overall number of points.
-    :param _mover_frac: Fraction of points moved.
-    :param _rng: Random generator.
-    :return: List of point indices.
-    """
+    """Chooses the indices of points moved."""
     m = max(1, int(round(_mover_frac * _n)))
     return _rng.choice(_n, size=m, replace=False)
 
 
 def _compute_center(_x, _mode, _center):
-    """
-    Computes the center of the point cloud.
-
-    _x: Input point cloud.
-    _mode: Radial mechanism mode.
-    _center: Center of the point cloud.
-    :return: Center point.
-    """
+    """Computes the center of the point cloud."""
     if _mode == "centroid":
         return _x.mean(axis=0)
     if _mode == "origin":
@@ -62,51 +58,90 @@ def _compute_center(_x, _mode, _center):
 
 
 def _safe_normalize(_v, _eps=1e-12):
-    """
-    Safely normalize a vector.
-    :param _v: Input vector.
-    :param _eps: Avoid div by zero.
-    :return: Normalized vector.
-    """
+    """Safely normalize vectors row-wise."""
     norms = np.linalg.norm(_v, axis=1, keepdims=True)
     return _v / np.maximum(norms, _eps)
 
 
 def step_radial(p: RadialParams):
     """
-    Step radial collapse mechanism.
-    :param p: Radial parameters dataclass.
-    :return: _step, function for stepping.
+    Build a radial collapse step function.
+
+    Important design choice:
+    - The center and initial radii are anchored from the first point cloud seen
+      by this closure.
+    - Later checkpoints interpolate toward a nonzero final radius, rather than
+      repeatedly contracting the already-contracted cloud to zero.
     """
+
+    state = {
+        "x0": None,
+        "center0": None,
+        "radii0": None,
+        "dirs0": None,
+        "fixed_indices": None,
+    }
+
+    def _initialize(x, rng):
+        x0 = np.asarray(x).copy()
+        center0 = _compute_center(x0, p.center_mode, p.center)
+
+        if p.fixed_indices is None:
+            fixed_indices = _choose_indices(len(x0), p.mover_frac, rng)
+        else:
+            fixed_indices = np.asarray(p.fixed_indices, dtype=int)
+
+        xc0 = x0[fixed_indices] - center0
+        radii0 = np.linalg.norm(xc0, axis=1, keepdims=True)
+        dirs0 = _safe_normalize(xc0)
+
+        state["x0"] = x0
+        state["center0"] = center0
+        state["radii0"] = radii0
+        state["dirs0"] = dirs0
+        state["fixed_indices"] = fixed_indices
 
     def _step(x, current_t, rng) -> Array:
         x = np.asarray(x)
-        xn = x.copy()
+
+        if state["x0"] is None:
+            _initialize(x, rng)
+
+        x0 = state["x0"]
+        center0 = state["center0"]
+        radii0 = state["radii0"]
+        dirs0 = state["dirs0"]
+        move_idx = state["fixed_indices"]
+
         lam = get_schedule_value(
             p.schedule,
+            p.finish,
             p.start_strength,
             p.end_strength,
-            p.finish,
-            current_t
+            current_t + 1,
         )
+        lam = float(np.clip(lam, 0.0, 1.0))
 
-        center = _compute_center(x, p.center_mode, p.center)
-        if p.fixed_indices is None:
-            move_idx = _choose_indices(len(x), p.mover_frac, rng)
-        else:
-            move_idx = p.fixed_indices
+        xn = x0.copy()
 
-        xc = x[move_idx] - center
-        radii = np.linalg.norm(xc, axis=1, keepdims=True)
         if p.mode == "contract_to_center":
-            # Simple centroid contraction
-            xn[move_idx] = center + (1.0 - lam) * xc
+            # Contract toward a nonzero radius fraction instead of the exact
+            # center. This avoids degenerating the whole cloud to one point.
+            final_radii = p.target_radius_frac * radii0
+            new_radii = (1.0 - lam) * radii0 + lam * final_radii
+            xn[move_idx] = center0 + dirs0 * new_radii
 
         elif p.mode == "to_radius":
-            # Preserve directions, move radii toward target_radius
-            dirs = _safe_normalize(xc)
-            new_radii = (1.0 - lam) * radii + lam * p.target_radius
-            xn[move_idx] = center + dirs * new_radii
+            # Preserve initial directions and move initial radii toward either:
+            # - an absolute target radius, or
+            # - a fraction of each point's initial radius.
+            if p.target_radius is None:
+                target_radii = p.target_radius_frac * radii0
+            else:
+                target_radii = np.full_like(radii0, float(p.target_radius))
+
+            new_radii = (1.0 - lam) * radii0 + lam * target_radii
+            xn[move_idx] = center0 + dirs0 * new_radii
 
         else:
             raise ValueError(f"Unknown radial collapse mode: {p.mode}")
@@ -122,16 +157,19 @@ def radial_params_from_severity(
     finish: int,
     mover_frac: float = 1.0,
     center_mode: str = "centroid",
-    target_radius: float = 0.0,
+    target_radius: Optional[float] = None,
     mode: str = "to_radius",
     seed: int = 0,
 ) -> RadialParams:
     if severity == "weak":
-        start_strength, end_strength = 0.0, 0.25
-    elif severity == "moderate":
-        start_strength, end_strength = 0.0, 0.60
+        start_strength, end_strength = 0.0, 1.0
+        target_radius_frac = 0.70
+    elif severity in {"moderate", "medium"}:
+        start_strength, end_strength = 0.0, 1.0
+        target_radius_frac = 0.40
     elif severity == "strong":
-        start_strength, end_strength = 0.0, 0.90
+        start_strength, end_strength = 0.0, 1.0
+        target_radius_frac = 0.15
     else:
         raise ValueError(f"Unknown severity: {severity}")
 
@@ -143,6 +181,7 @@ def radial_params_from_severity(
         mover_frac=mover_frac,
         center_mode=center_mode,
         target_radius=target_radius,
+        target_radius_frac=target_radius_frac,
         mode=mode,
-        seed=seed
+        seed=seed,
     )
