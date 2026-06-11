@@ -60,9 +60,11 @@ os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 os.environ.setdefault("MKL_NUM_THREADS", "1")
 os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
 
+LOCAL_ROOT = os.path.expanduser("~/evolve_local/evolve_collapse")
+
 EXTERNAL_ROOT = os.environ.get(
     "EVOLVE_COLLAPSE_ROOT",
-    "/mnt/wd_black/research/evolve_collapse",
+    os.environ.get("EVOLVE_ROOT", LOCAL_ROOT),
 )
 CHECKPOINT_ROOT = os.path.join(EXTERNAL_ROOT, "evolve_checkpoints")
 METRIC_ROOT = os.path.join(EXTERNAL_ROOT, "metric_outputs")

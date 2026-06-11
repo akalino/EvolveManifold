@@ -58,10 +58,10 @@ from trajectory import dynamics
 # Default to the stable mount point we just created. You can override this
 # without editing the script:
 #   EVOLVE_COLLAPSE_ROOT=/some/other/path python run_parquet_manifest_safe.py
-EXTERNAL_ROOT = os.environ.get(
-    "EVOLVE_COLLAPSE_ROOT",
-    "/mnt/wd_black/research/evolve_collapse",
-)
+LOCAL_ROOT = os.path.expanduser("~/evolve_local/evolve_collapse")
+
+EXTERNAL_ROOT = os.environ.get("EVOLVE_ROOT", LOCAL_ROOT)
+
 CHECKPOINT_ROOT = os.path.join(EXTERNAL_ROOT, "evolve_checkpoints")
 METRIC_ROOT = os.path.join(EXTERNAL_ROOT, "metric_outputs")
 SUMMARY_ROOT = os.path.join(EXTERNAL_ROOT, "metric_summaries")
@@ -106,7 +106,10 @@ PAPER_FOCUSED_GRID = {
     ],
     "seeds": [
         5,
-        17
+        17,
+        37,
+        51,
+        821
     ],
     "num_steps": 50,
     "checkpoint_every": 2,
@@ -590,28 +593,42 @@ class ParquetCheckpointWriter:
         append_run_index(self.manifest)
 
 
-def require_safe_checkpoint_root(root_dir: str) -> None:
-    """Fail fast if the intended checkpoint root is not on the stable mounted drive."""
-    root = Path(root_dir).resolve()
-    expected = Path("/mnt/wd_black").resolve()
+def require_safe_checkpoint_root(path: str | os.PathLike[str]) -> None:
+    """
+    Refuse obviously dangerous roots, but allow local/HPC roots.
 
-    if str(root).startswith("/media/alex/WD_BLACK"):
+    Previously this only allowed /mnt/wd_black, which is now too brittle.
+    """
+    resolved = os.path.abspath(os.path.expanduser(str(path)))
+
+    forbidden = {
+        "/",
+        "/home",
+        os.path.expanduser("~"),
+        "/tmp",
+        "/var",
+        "/usr",
+        "/etc",
+    }
+
+    if resolved in forbidden:
+        raise RuntimeError(f"Refusing unsafe checkpoint root: {resolved}")
+
+    allowed_prefixes = [
+        os.path.abspath(os.path.expanduser("~/evolve_local")),
+        "/mnt/wd_black",
+    ]
+
+    for env_name in ("EVOLVE_ROOT", "EVOLVE_COLLAPSE_ROOT", "SCRATCH", "PROJECT", "SLURM_TMPDIR"):
+        value = os.environ.get(env_name)
+        if value:
+            allowed_prefixes.append(os.path.abspath(os.path.expanduser(value)))
+
+    if not any(resolved.startswith(prefix) for prefix in allowed_prefixes):
         raise RuntimeError(
-            f"Refusing to write to old fragile media path: {root}. "
-            "Use /mnt/wd_black/research or set EVOLVE_COLLAPSE_ROOT."
+            "Checkpoint root is outside known safe roots: "
+            f"{resolved}. Set EVOLVE_ROOT or EVOLVE_COLLAPSE_ROOT intentionally."
         )
-
-    if not str(root).startswith(str(expected)):
-        raise RuntimeError(
-            f"Checkpoint root is not under {expected}: {root}. "
-            "Set EVOLVE_COLLAPSE_ROOT intentionally if you really want another target."
-        )
-
-    root.mkdir(parents=True, exist_ok=True)
-    probe = root / ".write_probe"
-    atomic_write_text(probe, "ok\n")
-    probe.unlink()
-
 
 def run_experiment(exp: TrajectoryExperiment, root_dir: str = CHECKPOINT_ROOT, label_root: Optional[str] = None) -> None:
     if label_root is None:
