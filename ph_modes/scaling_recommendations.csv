@@ -1,0 +1,8 @@
+ph_mode,decision,reason,scaling_score,speedup_vs_full_vr,median_spearman_vs_full_vr,median_normalized_mae_vs_full_vr
+skip_vr,diagnostic_only_or_tune,excellent rank fidelity; trend changes preserved; low normalized error; no speedup; transition timing preserved,0.8042036122672331,0.949769332160119,0.9999501183097363,8.574092834804827e-05
+online_landmark_dynamic_support,diagnostic_only_or_tune,usable rank fidelity; trend changes questionable; low normalized error; material speedup; transition timing drift,0.7772925384516952,64.35681794887056,0.8033996846842878,0.1347658812724042
+event_driven,diagnostic_only_or_tune,excellent rank fidelity; trend changes preserved; low normalized error; small speedup; transition timing preserved,0.7599148047574534,1.276300836943792,0.9991640328781106,0.0017089044096180056
+landmark_vr,diagnostic_only_or_tune,usable rank fidelity; trend changes preserved; low normalized error; material speedup; transition timing drift,0.7507671874177386,11.31595756470247,0.7515428652571632,0.1409628672489363
+fixed_knn_vr,do_not_scale_without_changes,weak rank fidelity; trend changes questionable; high normalized error; material speedup; transition timing drift,0.03483998154890183,171.2713174143968,0.257921759492761,24.073293684635416
+fixed_support_vr,do_not_scale_without_changes,weak rank fidelity; trend changes questionable; high normalized error; material speedup; transition timing drift,0.029029629855123695,84.0449275815889,0.22561897814618925,34.467065123102024
+online_landmark_event,do_not_scale_without_changes,weak rank fidelity; trend changes questionable; high normalized error; material speedup; transition timing drift,-0.032874051970451124,239.02597191304383,0.12416367904399656,9.988749122136516

@@ -63,11 +63,12 @@ def step_cluster_collapse(p: ClusterParams):
 
         lam = get_schedule_value(
             p.schedule,
+            p.finish,
             p.start_strength,
             p.end_strength,
-            p.finish,
-            _t
+            _t + 1,
         )
+        lam = float(np.clip(lam, 0.0, 1.0))
 
         if len(labels) != len(x):
             raise ValueError("cluster_labels must have same length as x")

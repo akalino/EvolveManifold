@@ -23,7 +23,7 @@ from topological_mechanisms import (HoleFillParams, PinchParams, BridgeParams,
                                     step_bridge_across_hole)
 from trajectory import dynamics
 
-EXTERNAL_ROOT = "/media/alex/WD_BLACK/evolve_collapse"
+EXTERNAL_ROOT = "/mnt/wd_black/research/evolve_collapse"
 CHECKPOINT_ROOT = os.path.join(EXTERNAL_ROOT, "evolve_checkpoints")
 METRIC_ROOT = os.path.join(EXTERNAL_ROOT, "metric_outputs")
 SUMMARY_ROOT = os.path.join(EXTERNAL_ROOT, "metric_summaries")
@@ -36,13 +36,15 @@ PAPER_FOCUSED_GRID = {
         "spiked_gaussian",
         "sphere",
         "torus",
+        "isotropic",
+        "swiss"
     ],
     "mechanisms": [
         "linear_to_kplane",
         "radial_collapse",
         "cluster_tightening",
         "cluster_merging",
-        "hole_fill",
+        "hole_fill"
     ],
     "schedules": [
         "linear",
@@ -54,22 +56,30 @@ PAPER_FOCUSED_GRID = {
     ],
     "mover_fracs": [
         0.25,
+        0.5,
         1.0,
     ],
     "noises": [
         0.0,
+        0.01,
+        0.05
     ],
     "n_values": [
+        500,
         1000,
+        2000
     ],
     "d_values": [
         50,
         100,
+        200
     ],
     "seeds": [
         5,
         17,
         26,
+        31,
+        821
     ],
     "num_steps": 50,
     "checkpoint_every": 2,
@@ -171,6 +181,9 @@ def is_valid_combo(_geometry, _mechanism):
 
     if _mechanism in topology_mechanisms:
         return _geometry == "torus"
+
+    if _mechanism == "linear_to_kplane" and _geometry == "torus":
+        return False
 
     return True
 
@@ -422,18 +435,20 @@ def run_experiment(_exp, _root_dir="evolve_checkpoints", _label_root=None):
         x0, labels = make_clustered_gaussian(
             n=_exp.n,
             d=_exp.d,
-            num_clusters=_exp.mechanism_params.get("num_clusters", 4),
+            num_clusters=getattr(_exp, "num_clusters", 4),
             seed=_exp.seed,
         )
+        object.__setattr__(_exp, "cluster_labels", labels)
         save_cluster_labels(_exp, labels, _label_root)
     elif _exp.base_geometry == "clustered_gaussian":
-            x0, labels = make_clustered_gaussian(
-                n=_exp.n,
-                d=_exp.d,
-                num_clusters=getattr(_exp, "num_clusters", 4),
-                seed=_exp.seed,
-            )
-            save_cluster_labels(_exp, labels, _label_root)
+        x0, labels = make_clustered_gaussian(
+            n=_exp.n,
+            d=_exp.d,
+            num_clusters=getattr(_exp, "num_clusters", 4),
+            seed=_exp.seed,
+        )
+        object.__setattr__(_exp, "cluster_labels", labels)
+        save_cluster_labels(_exp, labels, _label_root)
     else:
         x0 = get_geometry(
                 _exp.base_geometry,
@@ -472,13 +487,29 @@ def run_experiment(_exp, _root_dir="evolve_checkpoints", _label_root=None):
         append_manifest_row(_exp, run_dir, manifest_path, "skipped_existing")
         return
 
+    extra_payload = {
+        "base_geometry": _exp.base_geometry,
+        "schedule": _exp.schedule,
+        "severity": _exp.severity,
+        "mover_frac": _exp.mover_frac,
+        "noise": _exp.noise,
+        "n": _exp.n,
+        "d": _exp.d,
+        "k": _exp.k,
+        "seed": _exp.seed,
+    }
+
+    if labels is not None:
+        extra_payload["cluster_labels"] = np.asarray(labels, dtype=int)
+
     ckpt = CheckpointManager(
         _root_dir=_root_dir,
         _experiment="collapse_ph",
         _mechanism=_exp.mechanism,
         _model=model_name,
         _every=_exp.checkpoint_every,
-        _overwrite=False
+        _overwrite=False,
+        _extra_payload=extra_payload,
     )
 
     dynamics(x0,
