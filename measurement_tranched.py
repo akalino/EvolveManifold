@@ -488,7 +488,7 @@ def in_tranche(meta: Dict[str, Any], tranche: str) -> bool:
         "cluster_merging",
         "hole_fill",
     }
-    core_seeds = {5, 17, 26, 31, 821}
+    core_seeds = {5, 17, 26, 31, 37, 51, 123, 821, 1111, 1823}
     audit_seeds = {5, 17, 26}
     core_schedules = {"linear", "sigmoid"}
     core_severities = {"moderate", "strong"}

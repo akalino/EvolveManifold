@@ -1,0 +1,18 @@
+\begin{table}
+\caption{Runtime--fidelity tradeoff for persistent-homology approximation modes.}
+\label{tab:ph-runtime-fidelity}
+\begin{tabular}{lrrrrrrl}
+\toprule
+PH mode & Speedup & Rank fidelity & Trend fidelity & Norm. error & Transition error & Recompute rate & Interpretation \\
+\midrule
+full\_vr & 1.000000 & 1.000000 & 1.000000 & 0.000000 & 0.000000 & 0.000000 & Fidelity anchor \\
+skip\_vr & 0.995700 & 1.000000 & 1.000000 & 0.000000 & 0.000000 & 0.000000 & High fidelity, modest speedup \\
+event\_driven & 1.247300 & 0.998900 & 0.937600 & 0.002100 & 0.000000 & 0.701500 & High fidelity, modest speedup \\
+landmark\_vr & 13.257400 & 0.788000 & 0.523200 & 0.149400 & 30.000000 & 0.000000 & Useful approximation \\
+online\_landmark\_dynamic\_support & 69.435800 & 0.824300 & 0.491900 & 0.145800 & 24.000000 & 0.715400 & Best scale candidate \\
+fixed\_knn\_vr & 164.506300 & 0.433400 & -0.338500 & 20.927300 & 50.000000 & 0.000000 & Fast but distorted \\
+fixed\_support\_vr & 81.075400 & 0.407700 & -0.170000 & 29.975600 & 50.000000 & 0.000000 & Fast but distorted \\
+online\_landmark\_event & 258.766500 & 0.253700 & -0.352300 & 8.441000 & 50.000000 & 0.638500 & Fast but distorted \\
+\bottomrule
+\end{tabular}
+\end{table}

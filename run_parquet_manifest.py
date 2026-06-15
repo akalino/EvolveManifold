@@ -76,9 +76,11 @@ PAPER_FOCUSED_GRID = {
     "geometries": [
         "clustered_gaussian",
         "torus",
-        "isotropic"
+        "isotropic",
+        "spiked_gaussian"
     ],
     "mechanisms": [
+        "projection",
         "linear_to_kplane",
         "radial_collapse",
         "cluster_tightening",
@@ -107,14 +109,74 @@ PAPER_FOCUSED_GRID = {
     "seeds": [
         5,
         17,
+        26,
+        31,
         37,
         51,
-        821
+        123,
+        821,
+        1111,
+        1823
     ],
     "num_steps": 50,
     "checkpoint_every": 2,
 }
 
+
+PRIMARY_D50_GRID = {
+    "geometries": [
+        "clustered_gaussian",
+        "torus",
+        "isotropic",
+        "spiked_gaussian",
+    ],
+    "mechanisms": [
+        "projection",
+        "linear_to_kplane",
+        "radial_collapse",
+        "cluster_tightening",
+        "cluster_merging",
+        "hole_fill",
+    ],
+    "schedules": [
+        "linear",
+        "exponential",
+        "sigmoid",
+    ],
+    "severities": [
+        "weak",
+        "moderate",
+        "strong",
+    ],
+    "mover_fracs": [
+        0.25,
+        0.5,
+        1.0,
+    ],
+    "noises": [
+        0.0,
+    ],
+    "n_values": [
+        1000,
+    ],
+    "d_values": [
+        50,
+    ],
+    "seeds": [
+        5,
+        17,
+        26,
+        31,
+        37,
+        51,
+        123,
+        821,
+        1111,
+        1823,
+    ],
+    "num_steps": 50,
+    "checkpoint_every": 2,
+}
 
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -754,7 +816,7 @@ def run_all(
 
 
 def main():
-    grid = PAPER_FOCUSED_GRID
+    grid = PRIMARY_D50_GRID
     require_safe_checkpoint_root(CHECKPOINT_ROOT)
     print(f"Writing checkpoints under: {CHECKPOINT_ROOT}")
 

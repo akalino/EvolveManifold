@@ -12,7 +12,11 @@ def exp_decay(_end, _eps_0, _eps_t, _current_t):
     """
     if _end <= 0:
         return _eps_t
-    r = (_eps_t / _eps_0) ** (1 / _end)
+    try:
+        r = (_eps_t / _eps_0) ** (1 / _end)
+    except ZeroDivisionError:
+        print(f"Division by zero issue, defaulting to {_eps_t}")
+        return _eps_t
     return _eps_0 * (r ** _current_t)
 
 

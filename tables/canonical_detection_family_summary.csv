@@ -1,0 +1,16 @@
+regime,metric_family,median_epoch,mean_epoch,min_epoch,max_epoch,iqr_epoch,std_epoch,detected_n,total_n,detection_rate
+Projection,Spectral,4.0,4.0,4.0,4.0,0.0,0.0,10,10,1.0
+Projection,Geometric,4.0,4.0,4.0,4.0,0.0,0.0,10,10,1.0
+Projection,Topological,2.0,2.0,2.0,2.0,0.0,0.0,10,10,1.0
+Cluster tightening,Spectral,23.0,22.8,20.0,26.0,2.0,1.8330302779823362,10,10,1.0
+Cluster tightening,Geometric,10.0,10.0,10.0,10.0,0.0,0.0,10,10,1.0
+Cluster tightening,Topological,2.0,2.0,2.0,2.0,0.0,0.0,10,10,1.0
+Cluster merging,Spectral,,2.0,,,,,0,10,0.0
+Cluster merging,Geometric,10.0,10.0,10.0,10.0,0.0,0.0,10,10,1.0
+Cluster merging,Topological,,10.0,,,,,0,10,0.0
+Radial,Spectral,,10.0,,,,,0,10,0.0
+Radial,Geometric,6.0,6.0,6.0,6.0,0.0,0.0,10,10,1.0
+Radial,Topological,2.0,2.0,2.0,2.0,0.0,0.0,10,10,1.0
+Topology-first,Spectral,20.0,20.0,20.0,20.0,0.0,0.0,10,10,1.0
+Topology-first,Geometric,4.0,4.0,4.0,4.0,0.0,0.0,10,10,1.0
+Topology-first,Topological,2.0,2.0,2.0,2.0,0.0,0.0,10,10,1.0
