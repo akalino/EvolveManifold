@@ -25,10 +25,10 @@ from trajectory import dynamics
 
 EXTERNAL_ROOT = "/mnt/wd_black/research/evolve_collapse"
 CHECKPOINT_ROOT = os.path.join(EXTERNAL_ROOT, "evolve_checkpoints")
-METRIC_ROOT = os.path.join(EXTERNAL_ROOT, "metric_outputs")
-SUMMARY_ROOT = os.path.join(EXTERNAL_ROOT, "metric_summaries")
+METRIC_ROOT = os.path.join(EXTERNAL_ROOT, "../metric_outputs")
+SUMMARY_ROOT = os.path.join(EXTERNAL_ROOT, "../metric_summaries")
 ASSET_ROOT = os.path.join(EXTERNAL_ROOT, "summary_assets")
-CLUSTER_LABEL_ROOT = os.path.join(EXTERNAL_ROOT, "cluster_labels")
+CLUSTER_LABEL_ROOT = os.path.join(EXTERNAL_ROOT, "../cluster_labels")
 
 PAPER_FOCUSED_GRID = {
     "geometries": [
@@ -429,7 +429,7 @@ def run_experiment(_exp, _root_dir="evolve_checkpoints", _label_root=None):
     :return:
     """
     if _label_root is None:
-        _label_root = os.path.join(os.path.dirname(_root_dir), "cluster_labels")
+        _label_root = os.path.join(os.path.dirname(_root_dir), "../cluster_labels")
 
     if "clustering" in _exp.base_geometry:
         x0, labels = make_clustered_gaussian(

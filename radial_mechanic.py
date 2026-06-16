@@ -39,13 +39,24 @@ class RadialParams:
 
 
 def _choose_indices(_n, _mover_frac, _rng):
-    """Chooses the indices of points moved."""
+    """Chooses the indices of points moved.
+
+    :param: _n: number of points.
+    :param: _mover_frac: fraction of movers.
+    :param: _rng: random seed.
+    """
     m = max(1, int(round(_mover_frac * _n)))
     return _rng.choice(_n, size=m, replace=False)
 
 
 def _compute_center(_x, _mode, _center):
-    """Computes the center of the point cloud."""
+    """Computes the center of the point cloud.
+
+    :param: _x: point cloud.
+    :param: _mode: mechanic center mode.
+    :param: _center: center point.
+    :returns: new center.
+    """
     if _mode == "centroid":
         return _x.mean(axis=0)
     if _mode == "origin":
@@ -58,7 +69,12 @@ def _compute_center(_x, _mode, _center):
 
 
 def _safe_normalize(_v, _eps=1e-12):
-    """Safely normalize vectors row-wise."""
+    """Safely normalize vectors row-wise.
+
+    :param: _v: row vector.
+    :param: _eps: eps value for non-zero/non-overflow.
+    :returns: normed vector.
+    """
     norms = np.linalg.norm(_v, axis=1, keepdims=True)
     return _v / np.maximum(norms, _eps)
 
@@ -68,10 +84,13 @@ def step_radial(p: RadialParams):
     Build a radial collapse step function.
 
     Important design choice:
-    - The center and initial radii are anchored from the first point cloud seen
+    - the center and initial radii are anchored from the first point cloud seen
       by this closure.
-    - Later checkpoints interpolate toward a nonzero final radius, rather than
+    - later checkpoints interpolate toward a nonzero final radius, rather than
       repeatedly contracting the already-contracted cloud to zero.
+
+    :param: p: radialParams obj.
+    :return: step fn.
     """
 
     state = {
@@ -152,15 +171,28 @@ def step_radial(p: RadialParams):
 
 
 def radial_params_from_severity(
-    severity: str,
-    schedule: str,
-    finish: int,
-    mover_frac: float = 1.0,
-    center_mode: str = "centroid",
-    target_radius: Optional[float] = None,
+    severity,
+    schedule,
+    finish,
+    mover_frac,
+    center_mode,
+    target_radius,
     mode: str = "to_radius",
     seed: int = 0,
 ) -> RadialParams:
+    """
+    Calculates radial params based on the target severity.
+
+    :param severity: severity type.
+    :param schedule: scheduler type.
+    :param finish: final epoch int.
+    :param mover_frac: fraction of points moved.
+    :param center_mode: center mode.
+    :param target_radius: shrink to what radius.
+    :param mode: to_radius.
+    :param seed: random seed.
+    :return: radiam params obj.
+    """
     if severity == "weak":
         start_strength, end_strength = 0.0, 1.0
         target_radius_frac = 0.70

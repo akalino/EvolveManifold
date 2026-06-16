@@ -25,13 +25,13 @@ def dynamics(_x0, _total_step, _step_fn, _mover_frac=0.05, _seed=None, _chkpt=No
     """
     Builds point cloud movement dynamics.
 
-    :param _x0:
-    :param _total_step:
-    :param _step_fn:
-    :param _mover_frac:
-    :param _seed:
-    :param _chkpt:
-    :return:
+    :param _x0: initial point cloud.
+    :param _total_step: number of epochs/steps.
+    :param _step_fn: function used for stepping.
+    :param _mover_frac: pct of points moved.
+    :param _seed: random seed.
+    :param _chkpt: when to save checkpoints.
+    :return: Trajectory dataclass.
     """
     if _chkpt is not None:
         _chkpt.soft_save(_x0, 0, True)

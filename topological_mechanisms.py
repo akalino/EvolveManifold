@@ -1,12 +1,16 @@
 """Mechanisms to force topological collapse"""
-import numpy as np
 from dataclasses import dataclass
+
+import numpy as np
 
 from schedulers import get_schedule_value
 
 
 @dataclass
 class HoleFillParams:
+    """
+    Hyperparameters for hole filling.
+    """
     r0: float = 0.0
     rt: float = 0.8
     schedule: str = "linear"
@@ -15,6 +19,9 @@ class HoleFillParams:
 
 @dataclass
 class PinchParams:
+    """
+    Hyperparameters for pinching.
+    """
     strength_0: float = 0.0
     strength_t: float = 1.0
     theta0: float = 0.0
@@ -25,6 +32,9 @@ class PinchParams:
 
 @dataclass
 class BridgeParams:
+    """
+    Hyperparameters for bridge features.
+    """
     strength_0: float = 0.0
     strength_t: float = 1.0
     theta0: float = 0.0

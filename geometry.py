@@ -4,11 +4,12 @@ import numpy as np
 
 def isotropic_init(_n, _d, _seed=None):
     """
+    Isotropic point clouds.
 
-    :param _n:
-    :param _d:
-    :param _seed:
-    :return:
+    :param _n: num points.
+    :param _d: ambient dimension.
+    :param _seed: baseline random seed.
+    :return: numpy point cloud.
     """
     r_num = np.random.default_rng(_seed)
     x = r_num.normal(size=(_n, _d))
@@ -20,12 +21,13 @@ def isotropic_init(_n, _d, _seed=None):
 
 def kcube_init(_n, _d, _k, _seed=None):
     """
+    k-cube point clouds.
 
-    :param _n:
-    :param _d:
-    :param _k:
-    :param _seed:
-    :return:
+    :param _n: num points.
+    :param _d: ambient dimension.
+    :param _k: down proj dim.
+    :param _seed: baseline random seed.
+    :return: numpy point cloud.
     """
     r_num = np.random.default_rng(_seed)
     x = np.zeros((_n, _d))
@@ -35,12 +37,13 @@ def kcube_init(_n, _d, _k, _seed=None):
 
 def kplane_init(_n, _d, _k, _seed=None):
     """
+    k-plane point clouds.
 
-    :param _n:
-    :param _d:
-    :param _k:
-    :param _seed:
-    :return:
+    :param _n: num points.
+    :param _d: ambient dimension.
+    :param _k: down proj dim.
+    :param _seed: baseline random seed.
+    :return: numpy point cloud.
     """
     r_num = np.random.default_rng(_seed)
     x = np.zeros((_n, _d))
@@ -50,12 +53,13 @@ def kplane_init(_n, _d, _k, _seed=None):
 
 def sphere_init(_n, _d, _r=1.0, _seed=None):
     """
+    Sphere point clouds.
 
-    :param _n:
-    :param _d:
-    :param _r:
-    :param _seed:
-    :return:
+    :param _n: num points.
+    :param _d: ambient dimension.
+    :param _r: radius.
+    :param _seed: baseline random seed.
+    :return: numpy point cloud.
     """
     r_num = np.random.default_rng(_seed)
     x = r_num.normal(size=(_n, _d))
@@ -66,13 +70,14 @@ def sphere_init(_n, _d, _r=1.0, _seed=None):
 
 def torus_init(_n, _d, _r_major=2.0, _r_minor=0.5, _seed=None):
     """
+    Torus point clouds.
 
-    :param _n:
-    :param _d:
-    :param _r_major:
-    :param _r_minor:
-    :param _seed:
-    :return:
+    :param _n: num points.
+    :param _d: ambient dimension.
+    :param _r_major: major radius.
+    :param _r_minor: minor radius.
+    :param _seed: baseline random seed.
+    :return: numpy point cloud.
     """
     r_num = np.random.default_rng(_seed)
     theta = r_num.uniform(0.0, 2.0 * np.pi, size=_n)
@@ -87,11 +92,12 @@ def torus_init(_n, _d, _r_major=2.0, _r_minor=0.5, _seed=None):
 
 def swiss_init(_n, _d, _seed=None):
     """
+    Swiss roll point cloud.
 
-    :param _n:
-    :param _d:
-    :param _seed:
-    :return:
+    :param _n: num points.
+    :param _d: ambient dimension.
+    :param _seed: baseline random seed.
+    :return: numpy point cloud.
     """
     r_num = np.random.default_rng(_seed)
     t = r_num.uniform(1.5 * np.pi, 4.5 * np.pi, size=_n)
@@ -106,12 +112,13 @@ def swiss_init(_n, _d, _seed=None):
 
 def paraboloid_init(_n, _d, _a=1.0, _seed=None):
     """
+    Paraboloid point cloud.
 
-    :param _n:
-    :param _d:
+    :param _n: num points.
+    :param _d: ambient dimension.
     :param _a:
-    :param _seed:
-    :return:
+    :param _seed: baseline random seed.
+    :return: numpy point cloud.
     """
     r_num = np.random.default_rng(_seed)
     u = r_num.uniform(-1.0, 1.0, size=(_n, _d - 1))
@@ -122,12 +129,13 @@ def paraboloid_init(_n, _d, _a=1.0, _seed=None):
 
 def spiked_gaussian_init(_n, _d, _spike=5.0, _seed=None):
     """
+    Spiked Gaussian point cloud.
 
-    :param _n:
-    :param _d:
-    :param _spike:
-    :param _seed:
-    :return:
+    :param _n: num points.
+    :param _d: ambient dimension.
+    :param _spike: spike multiple factor.
+    :param _seed: baseline random seed.
+    :return: numpy point cloud.
     """
     r_num = np.random.default_rng(_seed)
     x = r_num.normal(size=(_n, _d))
@@ -136,11 +144,14 @@ def spiked_gaussian_init(_n, _d, _spike=5.0, _seed=None):
 
 def ring_init(_n, _d, _r=1.0, _width=0.15, _seed=None):
     """
-    :param _n:
-    :param _d:
-    :param _r:
-    :param _width:
-    :param _seed:
+    Ring-like point cloud.
+
+    :param _n: num points.
+    :param _d: ambient dimension.
+    :param _r: ring radius.
+    :param _width: width factor of ring.
+    :param _seed: baseline random seed.
+    :return: numpy point cloud.
     """
     r_num = np.random.default_rng(_seed)
     theta = r_num.uniform(0.0, 2.0 * np.pi, size=_n)
@@ -154,7 +165,19 @@ def ring_init(_n, _d, _r=1.0, _width=0.15, _seed=None):
 
 def make_clustered_gaussian(_n, _d, _num_clusters=4, _cluster_std=0.5,
     _center_scale=4.0, _seed=0, _shuffle=True, _return_centers=False):
+    """
+    Clustered Gaussian, one of the most relevant point clouds.
 
+    :param _n: num points.
+    :param _d: ambient dimension.
+    :param _num_clusters: initial number of clusters.
+    :param _cluster_std: standard deviation of each cluster.
+    :param _center_scale: scale for each center.
+    :param _seed: baseline random seed.
+    :param _shuffle: shuffle around the clusters based on random seed.
+    :param _return_centers: bool, return centers in needed.
+    :return: numpy point cloud, list of labels.
+    """
     if _n <= 0:
         raise ValueError(f"n must be positive, got {_n}")
     if _d <= 0:
@@ -192,13 +215,14 @@ def make_clustered_gaussian(_n, _d, _num_clusters=4, _cluster_std=0.5,
 
 def get_geometry(_name, _n, _d, _seed=None, _k=2):
     """
+    Fetch each baseline geometry from the name, points, dim, seed, and k proj dim.
 
-    :param _name:
-    :param _n:
-    :param _d:
-    :param _seed:
-    :param _k:
-    :return:
+    :param _name: string name for the cloud.
+    :param _n: num points.
+    :param _d: ambient dimension.
+    :param _seed: baseline random seed.
+    :param _k: optional down-proj dim.
+    :return: point cloud per call.
     """
     if _name == "isotropic":
         return isotropic_init(_n, _d, _seed)

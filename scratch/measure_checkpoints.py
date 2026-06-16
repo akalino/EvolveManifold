@@ -34,8 +34,8 @@ from projectors import (
 
 EXTERNAL_ROOT = "/media/alkal/WD_BLACK/evolve_collapse"
 CHECKPOINT_ROOT = os.path.join(EXTERNAL_ROOT, "evolve_checkpoints")
-METRIC_ROOT = os.path.join(EXTERNAL_ROOT, "metric_outputs")
-SUMMARY_ROOT = os.path.join(EXTERNAL_ROOT, "metric_summaries")
+METRIC_ROOT = os.path.join(EXTERNAL_ROOT, "../metric_outputs")
+SUMMARY_ROOT = os.path.join(EXTERNAL_ROOT, "../metric_summaries")
 ASSET_ROOT = os.path.join(EXTERNAL_ROOT, "summary_assets")
 
 CKPT_RE = re.compile(r"ckpt_epoch_(\d+)\.pkl$")

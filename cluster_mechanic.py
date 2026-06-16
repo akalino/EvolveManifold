@@ -30,10 +30,11 @@ class ClusterParams:
 def _choose_indices(_n, _mover_frac, _rng):
     """
     Chooses the indices of points moved.
-    :param _n: Overall number of points.
-    :param _mover_frac: Fraction of points moved.
-    :param _rng: Random generator.
-    :return: List of point indices.
+
+    :param _n: overall number of points.
+    :param _mover_frac: fraction of points moved.
+    :param _rng: random generator.
+    :return: list of point indices.
     """
     m = max(1, int(round(_mover_frac * _n)))
     return _rng.choice(_n, size=m, replace=False)
@@ -42,9 +43,10 @@ def _choose_indices(_n, _mover_frac, _rng):
 def _cluster_centroids(_x, _labels):
     """
     Cluster centroids of each cluster.
-    :param _x: Input point cloud.
-    :param _labels: Array of labels for centroids.
-    :return: D     ict of centroids.
+
+    :param _x: input point cloud.
+    :param _labels: array of labels for centroids.
+    :return: dict of centroids.
     """
     centroids = {}
     for c in np.unique(_labels):
@@ -54,6 +56,12 @@ def _cluster_centroids(_x, _labels):
 
 
 def step_cluster_collapse(p: ClusterParams):
+    """
+    Step fn for cluster collapses.
+
+    :param p: ClusterParams obj.
+    :return: step fn.
+    """
     rng = np.random.default_rng(p.seed)
     labels = np.asarray(p.cluster_labels)
 
@@ -125,6 +133,18 @@ def cluster_params_from_severity(
     mode: str = "tighten",
     seed: int = 0,
 ) -> ClusterParams:
+    """
+    Build cluster collapse parameters from severity string.
+
+    :param severity: severity mode.
+    :param schedule: schedule value.
+    :param finish: number of steps/epochs.
+    :param cluster_labels: list of cluster labels.
+    :param mover_frac: pct. moved points.
+    :param mode: spread or tighten or merge.
+    :param seed: random seed.
+    :return: ClusterParams obj.
+    """
     if severity == "weak":
         start_strength, end_strength = 0.0, 0.02
     elif severity == "moderate":

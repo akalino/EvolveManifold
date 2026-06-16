@@ -12,7 +12,11 @@ def exp_decay(_end, _eps_0, _eps_t, _current_t):
     """
     if _end <= 0:
         return _eps_t
-    r = (_eps_t / _eps_0) ** (1 / _end)
+    try:
+        r = (_eps_t / _eps_0) ** (1 / _end)
+    except ZeroDivisionError:
+        print(f"Division by zero issue, defaulting to {_eps_t}")
+        return _eps_t
     return _eps_0 * (r ** _current_t)
 
 
@@ -57,6 +61,14 @@ def sigmoid_decay(
 
 def get_schedule_value(_schedule, _end, _start, _finish, _current_t):
     """
+    Fetches current value of schedule.
+
+    :param _schedule: Schedule name.
+    :param _end: Ending epoch (T).
+    :param _start: Initial epoch (T).
+    :param _finish: Final epoch (T).
+    :param _current_t: Current step (T).
+    :return: schedule obj.
     """
     name = str(_schedule).lower()
 
