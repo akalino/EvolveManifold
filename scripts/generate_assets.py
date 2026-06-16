@@ -342,7 +342,7 @@ def main():
     args = parser.parse_args()
 
     ensure_dir(args.out_dir)
-    ensure_dir(os.path.join(args.out_dir, "tables"))
+    ensure_dir(os.path.join(args.out_dir, "../tables"))
     ensure_dir(os.path.join(args.out_dir, "plots"))
     ensure_dir(os.path.join(args.out_dir, "plots", "mover_frac"))
 
@@ -356,10 +356,10 @@ def main():
         os.path.join(args.summary_dir, "epochwise_mean_over_seeds.csv")
     )
 
-    save_top_tables(run_df, os.path.join(args.out_dir, "tables"))
-    save_mover_frac_table(seed_agg_df, os.path.join(args.out_dir, "tables"))
+    save_top_tables(run_df, os.path.join(args.out_dir, "../tables"))
+    save_mover_frac_table(seed_agg_df, os.path.join(args.out_dir, "../tables"))
     save_mechanism_geometry_tables(seed_agg_df,
-                                   os.path.join(args.out_dir, "tables"))
+                                   os.path.join(args.out_dir, "../tables"))
 
     plot_metric_trajectories(epoch_df, os.path.join(args.out_dir, "plots"))
     plot_collapse_trajectories(epoch_df, os.path.join(args.out_dir, "plots"))

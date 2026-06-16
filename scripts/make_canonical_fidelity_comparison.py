@@ -843,12 +843,12 @@ def main() -> None:
     parser.add_argument(
         "--figures-dir",
         type=Path,
-        default=Path("figures"),
+        default=Path("../figures"),
     )
     parser.add_argument(
         "--tables-dir",
         type=Path,
-        default=Path("tables"),
+        default=Path("../tables"),
     )
     parser.add_argument(
         "--no-filter-canonical",

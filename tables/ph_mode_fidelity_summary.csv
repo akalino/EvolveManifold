@@ -1,9 +1,9 @@
-PH mode,Speedup,Rank fidelity,Trend fidelity,Norm. error,Transition error,Recompute rate,Interpretation
-full_vr,1.0,1.0,1.0,0.0,0.0,0.0,Fidelity anchor
-skip_vr,0.9957,1.0,1.0,0.0,0.0,0.0,"High fidelity, modest speedup"
-event_driven,1.2473,0.9989,0.9376,0.0021,0.0,0.7015,"High fidelity, modest speedup"
-landmark_vr,13.2574,0.788,0.5232,0.1494,30.0,0.0,Useful approximation
-online_landmark_dynamic_support,69.4358,0.8243,0.4919,0.1458,24.0,0.7154,Best scale candidate
-fixed_knn_vr,164.5063,0.4334,-0.3385,20.9273,50.0,0.0,Fast but distorted
-fixed_support_vr,81.0754,0.4077,-0.17,29.9756,50.0,0.0,Fast but distorted
-online_landmark_event,258.7665,0.2537,-0.3523,8.441,50.0,0.6385,Fast but distorted
+PH mode,Speedup,Rank fidelity,Trend fidelity,Norm. error,Transition error,Recompute rate,Monitoring score,Interpretation
+full_vr,1.0,1.0,1.0,0.0,0.0,0.0,0.0,Fidelity anchor
+skip_vr,0.9957,1.0,1.0,0.0,0.0,0.0,0.0,"High fidelity, modest speedup"
+event_driven,1.2473,0.9989,0.9376,0.0021,0.0,0.7015,0.0927,"High fidelity, modest speedup"
+landmark_vr,13.2574,0.788,0.5232,0.1494,30.0,0.0,0.3663,Useful approximation
+online_landmark_dynamic_support,69.4358,0.8243,0.4919,0.1458,24.0,0.7154,0.6678,Online landmark dynamic support PH mode
+fixed_knn_vr,164.5063,0.4334,-0.3385,20.9273,50.0,0.0,0.0109,Fast but distorted
+fixed_support_vr,81.0754,0.4077,-0.17,29.9756,50.0,0.0,0.0063,Fast but distorted
+online_landmark_event,258.7665,0.2537,-0.3523,8.441,50.0,0.6385,0.0162,Fast but distorted
