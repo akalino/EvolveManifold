@@ -20,7 +20,7 @@ def compute_max_edge(_x, _sz_cut):
         max_edge_len = qs[0]
     else:
         max_edge_len = qs[1]
-    print("[VR MAX EDGE LENGTH] {}".format(max_edge_len))
+    print(f"[VR MAX EDGE LENGTH] {max_edge_len}")
     return max_edge_len
 
 
@@ -78,7 +78,7 @@ def _knn_edges(_x, _k):
 
 
 def _build_clique_tree(_n, _edges, _edge_filtration, _max_dim):
-    st = gd.SimplexTree()
+    st = gd.SimplexTree() # pylint: disable=no-member
     for i in range(_n):
         st.insert([i], filtration=0.0)
     for i, j in _edges:
@@ -151,7 +151,7 @@ def _knn_identity_drift(_knn_old, _knn_new):
     :param _knn_new: New knn indices.
     :return: Fraction of changed neighbor indices.
     """
-    n, k = _knn_old.shape
+    _, k = _knn_old.shape
     changed_frac = []
     for old_row, new_row in zip(_knn_old, _knn_new):
         old_set = set(old_row.tolist())
@@ -179,7 +179,7 @@ def _knn_rank_drift(_knn_old, _knn_new):
     if _knn_old.shape != _knn_new.shape:
         raise ValueError("kNN arrays must have the same shape")
 
-    n, k = _knn_old.shape
+    _, k = _knn_old.shape
     if k <= 1:
         return 0.0
 
@@ -195,13 +195,13 @@ def _knn_rank_drift(_knn_old, _knn_new):
             drifts.append(1.0)
             continue
 
-        # Normalize by maximum possible rank displacement k - 1.
+        # Normalize by maximum possible rank displacement k - 1
         rank_moves = [
             abs(old_rank[j] - new_rank[j]) / float(k - 1)
             for j in shared
         ]
 
-        # Penalize missing neighbors too, so this complements identity drift.
+        # Penalize missing neighbors too, so this complements identity drift
         missing_frac = 1.0 - (len(shared) / float(k))
         shared_rank_drift = float(np.mean(rank_moves)) if rank_moves else 0.0
 
@@ -239,7 +239,7 @@ def _assignment_drift(_assign_prev, _assign_new):
     """
     _assign_prev = np.asarray(_assign_prev)
     _assign_new = np.asarray(_assign_new)
-    changed = (_assign_prev != _assign_new)
+    changed = _assign_prev != _assign_new
     return float(np.mean(changed))
 
 
@@ -588,7 +588,8 @@ class PHWorkflow:
                 self.n_landmarks,
                 self.seed,
             )
-            print("[PH LANDMARKS] {}".format(len(self.landmark_idx)))
+            # lm_l = len(self.landmark_idx)
+            # print(f"[PH LANDMARKS] {lm_l}")
 
         x_use = self._cloud_for_epoch(_x)
 
@@ -601,7 +602,8 @@ class PHWorkflow:
                                                    self.support_edges,
                                                    edge_filt,
                                                    self.max_dim)
-            print("[PH FIXED SUPPORT EDGES] {}".format(len(edges)))
+            # el = len(edges)
+            # print(f"[PH FIXED SUPPORT EDGES] {el}")
 
         if self.mode == "fixed_knn_vr":
             edges, d_mat = _knn_edges(x_use, self.knn_k)
@@ -612,7 +614,8 @@ class PHWorkflow:
                                                    self.support_edges,
                                                    edge_filt,
                                                    self.max_dim)
-            print("[PH FIXED KNN EDGES] {}".format(len(edges)))
+            # el = len(edges)
+            # print(f"[PH FIXED KNN EDGES] {el}")
 
         if self.mode == "online_landmark_event":
             self.landmark_idx = furthest_point_subsample(_x,
@@ -628,7 +631,7 @@ class PHWorkflow:
                                                    edge_filt,
                                                    self.max_dim)
             self.edge_filt_prev = edge_filt
-            print("[PH ONLINE LANDMARK EVENT] {} edges".format(len(edges)))
+            # print("[PH ONLINE LANDMARK EVENT] {} edges".format(len(edges)))
 
         if self.mode == "online_landmark_dynamic_support":
             self.landmark_idx = furthest_point_subsample(
@@ -652,7 +655,7 @@ class PHWorkflow:
                 self.max_dim,
             )
             self.edge_filt_prev = edge_filt
-            print("[PH ONLINE LANDMARK DYNAMIC SUPPORT] {} edges".format(len(edges)))
+            # print("[PH ONLINE LANDMARK DYNAMIC SUPPORT] {} edges".format(len(edges)))
 
     def _cloud_for_epoch(self, _x):
         if self.landmark_idx is not None:
@@ -693,7 +696,7 @@ class PHWorkflow:
         score = _simplex_change_score(_x_use, self.prev_x_use)
         check = score >= self.event_thresh
         if check:
-            print("[PH EVENT DRIVEN] change event occurred at epoch {}".format(_epoch))
+            print(f"[PH EVENT DRIVEN] change event occurred at epoch {_epoch}")
         return check
 
     def _event_reason(self, _rx_dict, _epoch):
@@ -901,12 +904,12 @@ class PHWorkflow:
             self.support_n = _x_use.shape[0]
             self.simplex_tree, d_mat_curr, edge_filt_new = (
                 self._build_simplex_tree_from_support(_x_use, self.support_edges))
-            print("[PH DYNAMIC SUPPORT] old {}, new {}, merged {}, kept {}".format(
-                len(self.support_edges),
-                len(new_edges),
-                len(merged_edges),
-                len(pruned_edges)
-            ))
+            # print("[PH DYNAMIC SUPPORT] old {}, new {}, merged {}, kept {}".format(
+            #     len(self.support_edges),
+            #    len(new_edges),
+            #    len(merged_edges),
+            #    len(pruned_edges)
+            # ))
         if not recompute:
             self.last_recomputed = False
             self.edge_filt_prev = edge_filt_new

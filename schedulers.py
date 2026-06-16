@@ -61,6 +61,14 @@ def sigmoid_decay(
 
 def get_schedule_value(_schedule, _end, _start, _finish, _current_t):
     """
+    Fetches current value of schedule.
+
+    :param _schedule: Schedule name.
+    :param _end: Ending epoch (T).
+    :param _start: Initial epoch (T).
+    :param _finish: Final epoch (T).
+    :param _current_t: Current step (T).
+    :return: schedule obj.
     """
     name = str(_schedule).lower()
 

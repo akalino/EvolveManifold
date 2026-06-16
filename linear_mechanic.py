@@ -22,10 +22,11 @@ class LinearSpectralParams:
 
 def step_linear_spectral(p: LinearSpectralParams, total_steps: int):
     """
+    Linear spectral mechanic.
 
-    :param p:
-    :param total_steps:
-    :return:
+    :param p: LinearParams obj.
+    :param total_steps: total number of steps/epochs.
+    :return: step fn
     """
 
     def _step(x: Array, current_t: int, rng: np.random.Generator) -> Array:

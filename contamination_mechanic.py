@@ -18,11 +18,12 @@ class ContaminationParams:
 
 def make_outlier_mask(_n, _outlier_frac, _rng):
     """
+    mask the outliers while keeping indices.
 
-    :param _n: Total number of points.
-    :param _outlier_frac: Pct of tagged outliers.
+    :param _n: total number of points.
+    :param _outlier_frac: pct of tagged outliers.
     :param _rng: random number generator.
-    :return:
+    :return: masks, np array.
     """
     m = int(np.floor(np.clip(_outlier_frac, 0.0, 1.0) * _n))
     mask = np.zeros(_n, dtype=bool)
@@ -31,13 +32,15 @@ def make_outlier_mask(_n, _outlier_frac, _rng):
         mask[idx] = True
     return mask
 
+
 def step_with_contamination(_base_fn, _params, _mask_seed=17):
     """
+    Step function applying contamination.
 
-    :param _base_fn:
-    :param _params:
-    :param _mask_seed:
-    :return:
+    :param _base_fn: base contamination fn.
+    :param _params: contamination parameters.
+    :param _mask_seed: random number generator.
+    :return: step fn.
     """
     mask_dict = {}
 

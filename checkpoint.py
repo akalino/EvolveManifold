@@ -65,7 +65,7 @@ class CheckpointManager:
     def save(self, _x, _epoch):
         """
         :param _x: point cloud state
-        :param _epoch:
+        :param _epoch: index of epoch to save at.
         """
         payload = {
             "x": np.asarray(_x, dtype=float),
@@ -97,7 +97,7 @@ class CheckpointManager:
 
     def load(self, _epoch):
         """
-        :param _epoch:
+        :param _epoch: Checkpoint number.
         """
         with open(self._ckpt_path(int(_epoch)), "rb") as f:
             return pickle.load(f)

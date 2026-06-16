@@ -66,11 +66,32 @@ MODE_COLORS = {
     "skip_vr": "#666666",
     "event_driven": "#0072B2",
     "landmark_vr": "#E69F00",
-    "online_landmark_dynamic_support": "#CC79A7",
+    "online_landmark_dynamic_support": "#D4AF37",  # gold: default scalable PH mode
     "fixed_knn_vr": "#999999",
     "fixed_support_vr": "#999999",
     "online_landmark_event": "#999999",
 }
+
+
+MODE_MARKERS = {
+    "online_landmark_dynamic_support": "o",
+    "event_driven": "o",
+    "skip_vr": "o",
+    "landmark_vr": "o",
+    "fixed_knn_vr": "o",
+    "fixed_support_vr": "o",
+    "online_landmark_event": "o",
+}
+
+
+def is_dynamic_landmark(mode: str) -> bool:
+    return mode == "online_landmark_dynamic_support"
+
+
+def is_distorted_shortcut(mode: str) -> bool:
+    return mode in {"fixed_knn_vr", "fixed_support_vr", "online_landmark_event"}
+
+
 
 
 def default_evolve_root() -> Path:
@@ -377,31 +398,63 @@ def summarize_mode(
     }
 
 
+def monitoring_score(row: pd.Series) -> float:
+    """Simple display-oriented score for the table.
+
+    This is not used as a formal benchmark metric. It is intended to rank
+    practical monitoring candidates by rewarding speedup and rank fidelity,
+    while penalizing normalized error and transition-time shift.
+    """
+    speedup = float(row.get("speedup", np.nan))
+    rank = float(row.get("rank_fidelity", np.nan))
+    trend = float(row.get("trend_fidelity", np.nan))
+    mae = float(row.get("normalized_mae", np.nan))
+    transition = float(row.get("transition_error_epoch", np.nan))
+
+    if not np.isfinite(speedup) or not np.isfinite(rank):
+        return np.nan
+
+    trend_term = max(trend, 0.0) if np.isfinite(trend) else 0.0
+    mae_term = mae if np.isfinite(mae) else 1.0
+    transition_term = transition if np.isfinite(transition) else 50.0
+
+    return float(
+        np.log10(max(speedup, 1.0))
+        * max(rank, 0.0)
+        * (0.5 + 0.5 * trend_term)
+        / (1.0 + mae_term)
+        / (1.0 + transition_term / 50.0)
+    )
+
+
 def interpretation(row: pd.Series) -> str:
     mode = row["ph_mode"]
 
     if mode == "full_vr":
         return "Fidelity anchor"
 
+    if mode == "online_landmark_dynamic_support":
+        return "Online landmark dynamic support PH mode"
+
     speedup = row["speedup"]
     rank = row["rank_fidelity"]
     mae = row["normalized_mae"]
 
-    if speedup >= 20 and rank >= 0.70 and mae <= 0.25:
-        return "Best scale candidate"
     if rank >= 0.90 and mae <= 0.05 and speedup < 5:
         return "High fidelity, modest speedup"
+    if speedup >= 20 and rank >= 0.70 and mae <= 0.25:
+        return "Strong scale candidate"
     if rank >= 0.65 and mae <= 0.30:
         return "Useful approximation"
     if speedup >= 20 and rank < 0.50:
         return "Fast but distorted"
     return "Diagnostic only"
 
-
 def make_table(summary: pd.DataFrame, tables_dir: Path) -> None:
     tables_dir.mkdir(parents=True, exist_ok=True)
 
     out = summary.copy()
+    out["Monitoring score"] = out.apply(monitoring_score, axis=1)
     out["Interpretation"] = out.apply(interpretation, axis=1)
 
     table = out[
@@ -413,6 +466,7 @@ def make_table(summary: pd.DataFrame, tables_dir: Path) -> None:
             "normalized_mae",
             "transition_error_epoch",
             "recompute_rate",
+            "Monitoring score",
             "Interpretation",
         ]
     ].copy()
@@ -429,7 +483,7 @@ def make_table(summary: pd.DataFrame, tables_dir: Path) -> None:
         }
     )
 
-    for c in ["Speedup", "Rank fidelity", "Trend fidelity", "Norm. error", "Transition error", "Recompute rate"]:
+    for c in ["Speedup", "Rank fidelity", "Trend fidelity", "Norm. error", "Transition error", "Recompute rate", "Monitoring score"]:
         table[c] = pd.to_numeric(table[c], errors="coerce").round(4)
 
     csv_path = tables_dir / "ph_mode_fidelity_summary.csv"
@@ -454,6 +508,15 @@ def make_table(summary: pd.DataFrame, tables_dir: Path) -> None:
 
 
 def make_figure5(summary: pd.DataFrame, figures_dir: Path) -> None:
+    """Make PH runtime--fidelity figure with dynamic landmark support emphasized.
+
+    Visual design choices:
+    - Online landmark dynamic support is shown as the gold/default scalable mode.
+    - Marker size encodes normalized error, so larger points indicate higher error.
+    - Distorted shortcut modes are de-emphasized in gray.
+    - A shaded region marks the practical monitoring zone: order-of-magnitude
+      speedup with useful rank fidelity.
+    """
     figures_dir.mkdir(parents=True, exist_ok=True)
 
     df = summary.copy()
@@ -465,7 +528,30 @@ def make_figure5(summary: pd.DataFrame, figures_dir: Path) -> None:
     if df.empty:
         raise RuntimeError("No non-reference modes available for Fig. 5")
 
-    fig, ax = plt.subplots(figsize=(7.6, 5.2))
+    fig, ax = plt.subplots(figsize=(8.2, 5.4))
+
+    xmax = float(df["speedup"].max())
+    xmin = max(0.8, float(df["speedup"].min()) * 0.75)
+
+    # Practical monitoring region: large speedup while staying above a useful
+    # rank-fidelity threshold. This does not assert exact diagram equality; it
+    # marks the region relevant to trajectory-scale monitoring.
+    ax.axhspan(
+        0.75,
+        1.05,
+        xmin=0,
+        xmax=1,
+        color="#F7E7A6",
+        alpha=0.22,
+        zorder=0,
+    )
+    ax.axvspan(
+        10,
+        max(xmax * 1.25, 12),
+        color="#F7E7A6",
+        alpha=0.12,
+        zorder=0,
+    )
 
     plotted = []
 
@@ -475,17 +561,35 @@ def make_figure5(summary: pd.DataFrame, figures_dir: Path) -> None:
         y = float(row["rank_fidelity"])
         mae = float(row["normalized_mae"])
 
-        size = 80 + 280 * min(mae, 1.0)
+        # Marker size encodes normalized error: larger markers indicate higher error.
+        size = 80 + 280 * min(max(mae, 0.0), 1.0)
+
+        color = MODE_COLORS.get(mode, "#666666")
+        marker = MODE_MARKERS.get(mode, "o")
+        alpha = 0.90
+        linewidth = 0.8
+        zorder = 3
+
+        if is_distorted_shortcut(mode):
+            alpha = 0.48
+            linewidth = 0.7
+            zorder = 2
+
+        if is_dynamic_landmark(mode):
+            alpha = 1.0
+            linewidth = 1.3
+            zorder = 7
 
         ax.scatter(
             x,
             y,
             s=size,
-            color=MODE_COLORS.get(mode, "#666666"),
+            marker=marker,
+            color=color,
             edgecolor="black",
-            linewidth=0.8,
-            alpha=0.85,
-            zorder=3,
+            linewidth=linewidth,
+            alpha=alpha,
+            zorder=zorder,
         )
 
         plotted.append(
@@ -494,12 +598,34 @@ def make_figure5(summary: pd.DataFrame, figures_dir: Path) -> None:
                 "label": MODE_LABELS.get(mode, mode),
                 "x": x,
                 "y": y,
+                "mae": mae,
             }
         )
 
-    # Put labels below nodes. Sort left-to-right and stagger them slightly
-    # to avoid collisions among nearby points on the log-scaled x-axis.
-    plotted = sorted(plotted, key=lambda r: r["x"])
+    # Label the default scalable method with an explicit callout.
+    dynamic_rows = [r for r in plotted if is_dynamic_landmark(r["mode"])]
+    if dynamic_rows:
+        r = dynamic_rows[0]
+        callout = (
+            "Online landmark dynamic support \n"
+            f"{r['x']:.1f}x speedup, rank={r['y']:.2f}, error={r['mae']:.2f}"
+        )
+        ax.annotate(
+            callout,
+            xy=(r["x"], r["y"]),
+            xytext=(0.58, 0.93),
+            textcoords="axes fraction",
+            ha="left",
+            va="top",
+            fontsize=9,
+            fontweight="bold",
+            bbox=dict(boxstyle="round,pad=0.35", fc="#FFF7D1", ec="#8A6D00", alpha=0.95),
+            arrowprops=dict(arrowstyle="->", lw=1.2, color="#8A6D00"),
+            zorder=8,
+        )
+
+    # Label other nodes below points. Keep dynamic landmark handled by callout.
+    plotted = sorted([r for r in plotted if not is_dynamic_landmark(r["mode"])], key=lambda r: r["x"])
 
     label_levels = [-0.045, -0.085, -0.125]
     last_log_x_at_level = {level: -np.inf for level in label_levels}
@@ -518,18 +644,15 @@ def make_figure5(summary: pd.DataFrame, figures_dir: Path) -> None:
         last_log_x_at_level[chosen_level] = log_x
 
         label_y = max(-0.03, y + chosen_level)
-
-        # Keep the far-right "landmark event" label inside the plot box.
-        if item["mode"] == "online_landmark_event":
-            label_y = max(0.08, label_y)
-
         label_x = x
         ha = "center"
 
-        # Keep the far-right "landmark event" label inside the plot box.
         if item["mode"] == "online_landmark_event":
-            label_x = x / 1.03  # move left on log scale
+            label_y = max(0.08, label_y)
+            label_x = x / 1.03
             ha = "right"
+
+        label_alpha = 0.65 if is_distorted_shortcut(item["mode"]) else 0.95
 
         ax.text(
             label_x,
@@ -538,6 +661,7 @@ def make_figure5(summary: pd.DataFrame, figures_dir: Path) -> None:
             ha=ha,
             va="top",
             fontsize=8,
+            alpha=label_alpha,
             zorder=4,
         )
 
@@ -545,23 +669,47 @@ def make_figure5(summary: pd.DataFrame, figures_dir: Path) -> None:
             [x, label_x],
             [y - 0.015, label_y + 0.01],
             linewidth=0.8,
-            alpha=0.75,
+            alpha=0.45 if is_distorted_shortcut(item["mode"]) else 0.75,
             color="#333333",
             zorder=2,
         )
 
-    ax.axhline(0.75, linestyle=":", linewidth=1)
+    ax.axhline(0.75, linestyle=":", linewidth=1, color="#6B5B00")
     ax.text(
         0.99,
-        0.705,
-        "rank fidelity = 0.75",
+        0.755,
+        "usable rank-fidelity threshold",
         transform=ax.get_yaxis_transform(),
         ha="right",
         va="bottom",
         fontsize=8,
+        color="#6B5B00",
+    )
+
+    ax.axvline(10, linestyle=":", linewidth=1, color="#6B5B00")
+    ax.text(
+        10.2,
+        0.04,
+        "10x speedup",
+        ha="left",
+        va="bottom",
+        fontsize=8,
+        color="#6B5B00",
+    )
+
+    ax.text(
+        0.97,
+        0.97,
+        "practical monitoring region",
+        transform=ax.transAxes,
+        ha="right",
+        va="top",
+        fontsize=8,
+        color="#6B5B00",
     )
 
     ax.set_xscale("log")
+    ax.set_xlim(xmin, max(xmax * 1.18, 12))
     ax.set_xlabel("Speedup relative to full VR")
     ax.set_ylabel("Rank fidelity to full VR")
     ax.set_ylim(-0.02, 1.05)
@@ -569,6 +717,16 @@ def make_figure5(summary: pd.DataFrame, figures_dir: Path) -> None:
     ax.grid(alpha=0.25, which="both")
 
     color_handles = [
+        Line2D(
+            [0],
+            [0],
+            marker="o",
+            linestyle="none",
+            markersize=8,
+            markerfacecolor=MODE_COLORS.get("online_landmark_dynamic_support", "#D4AF37"),
+            markeredgecolor="black",
+            label="Scalable PH mode",
+        ),
         Line2D(
             [0],
             [0],
@@ -587,7 +745,7 @@ def make_figure5(summary: pd.DataFrame, figures_dir: Path) -> None:
             markersize=7,
             markerfacecolor=MODE_COLORS.get("landmark_vr", "#E69F00"),
             markeredgecolor="black",
-            label="Landmark approximation",
+            label="Landmark-only approximation",
         ),
         Line2D(
             [0],
@@ -597,7 +755,8 @@ def make_figure5(summary: pd.DataFrame, figures_dir: Path) -> None:
             markersize=7,
             markerfacecolor=MODE_COLORS.get("fixed_knn_vr", "#999999"),
             markeredgecolor="black",
-            label="Shortcut method",
+            alpha=0.55,
+            label="Distorted shortcut",
         ),
     ]
 
@@ -613,7 +772,7 @@ def make_figure5(summary: pd.DataFrame, figures_dir: Path) -> None:
         fancybox=False,
         edgecolor="#BBBBBB",
         facecolor="white",
-        framealpha=0.85,
+        framealpha=0.90,
         loc="lower left",
         bbox_to_anchor=(0.03, 0.17),
         bbox_transform=ax.transAxes,
@@ -627,12 +786,12 @@ def make_figure5(summary: pd.DataFrame, figures_dir: Path) -> None:
 
     ax.legend(
         handles=size_handles,
-        title="Normalized error",
+        title="Marker size",
         frameon=True,
         fancybox=False,
         edgecolor="#BBBBBB",
         facecolor="white",
-        framealpha=0.88,
+        framealpha=0.90,
         loc="lower left",
         bbox_to_anchor=(0.03, 0.05),
         bbox_transform=ax.transAxes,
@@ -641,7 +800,7 @@ def make_figure5(summary: pd.DataFrame, figures_dir: Path) -> None:
         ncol=2,
         handletextpad=0.9,
         columnspacing=1.2,
-        borderpad=0.7
+        borderpad=0.7,
     )
 
     fig.tight_layout()

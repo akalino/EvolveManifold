@@ -1,3 +1,6 @@
+"""
+Gudhi implementations for persistence diagrams.
+"""
 import numpy as np
 import gudhi as gd
 
@@ -8,9 +11,10 @@ from gudhi.dtm_rips_complex import DTMRipsComplex
 
 def _diag_by_dim(_tree, _max_dim):
     """
+    Gets PD by dimension.
 
-    :param _tree: Simplex tree.
-    :param _max_dim: Maximum dimension to compute persistence diagram.
+    :param _tree: simplex tree.
+    :param _max_dim: maximum dimension to compute persistence diagram.
     :return: out, dictionary with dimension: birth/death pairs.
     """
     st = _tree
@@ -23,6 +27,13 @@ def _diag_by_dim(_tree, _max_dim):
 
 
 def debug_simplex_tree(st, label=""):
+    """
+    Debugging helper for simplex trees.
+
+    :param st: simplex tree.
+    :param label: tree/dim label for testing.
+    :return: none, prints output.
+    """
     print(f"\n[{label}] simplex_tree dim =", st.dimension())
     print(f"[{label}] num simplices =", st.num_simplices())
     # If you want: inspect filtration range
@@ -32,26 +43,29 @@ def debug_simplex_tree(st, label=""):
 
 def compute_vr_diagrams(_points, _max_edge_length, _max_dim=1, _sparse=None):
     """
+    Main call to Gudhi for VR diagram computation.
 
-    :param _points:
-    :param _max_edge_length:
-    :param _max_dim:
-    :param _sparse:
-    :return:
+    :param _points: number of point cloud points.
+    :param _max_edge_length: max edge length.
+    :param _max_dim: max homology dim.
+    :param _sparse: bool, use Gudhi sparse matrix.
+    :return: Dict, diagram by dimension.
     """
-    rips = gd.RipsComplex(points=_points, max_edge_length=_max_edge_length, sparse=_sparse)
+    rips = gd.RipsComplex(  # pylint: disable=no-member
+        points=_points, max_edge_length=_max_edge_length, sparse=_sparse)
     st = rips.create_simplex_tree(max_dimension=_max_dim + 1)
     return _diag_by_dim(st, _max_dim)
 
 
 def compute_dtm_vr_diagrams(_points, _max_filtration=100, _k=10, _q=2, _max_dim=2):
     """
+    Uses the distance-to-measure VR from Gudhi.
 
-    :param _points:
-    :param _max_filtration:
-    :param _k:
-    :param _q:
-    :param _max_dim:
+    :param _points: number of point cloud points.
+    :param _max_filtration: max filtration value.
+    :param _k: number of neighbors for the computation of DTM.
+    :param _q: order used to compute the distance to measure.
+    :param _max_dim: homology dim.
     :return:
     """
     dtm_rips = DTMRipsComplex(points=_points, k=_k, q=_q, max_filtration=_max_filtration)

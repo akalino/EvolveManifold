@@ -1,3 +1,4 @@
+""" Clustering label helpers when required for particular geometries. """
 import argparse
 import numpy as np
 
@@ -15,33 +16,19 @@ def make_clustered_gaussian(
     """
     Generate a Gaussian mixture / clustered Gaussian point cloud.
 
-    Parameters
-    ----------
-    n : int
-        Total number of points.
-    d : int
-        Ambient dimension.
-    num_clusters : int
-        Number of clusters.
-    cluster_std : float
-        Standard deviation within each cluster.
-    center_scale : float
-        Scale used to sample cluster centers.
-    seed : int
-        RNG seed.
-    shuffle : bool
-        Whether to shuffle points after construction.
-    return_centers : bool
-        Whether to also return the cluster centers.
+    :param n: number of points.
+    :param d: ambient dimension.
+    :param num_clusters: number of clusters.
+    :param cluster_std: standard deviation within each cluster.
+    :param center_scale: scale used to sample cluster centers.
+    :param seed: random seed.
+    :param shuffle: bool, shuffle points after construction.
+    :param return_centers: also return the cluster centers.
 
-    Returns
-    -------
-    x : np.ndarray, shape (n, d)
-        Sampled point cloud.
-    labels : np.ndarray, shape (n,)
-        Integer cluster labels.
-    centers : np.ndarray, shape (num_clusters, d), optional
-        Cluster centers if return_centers=True.
+    :returns:
+    - x: sampled point cloud.
+    - labels: integer cluster labels.
+    - centers: cluster centers if return_centers=True.
     """
     if n <= 0:
         raise ValueError(f"n must be positive, got {n}")
@@ -89,10 +76,10 @@ def get_cluster_labels_for_geometry(_exp, _x0):
     3. Optionally infer labels from the point cloud for a few known cases.
     4. Otherwise fail.
 
-    Returns
-    -------
-    labels : np.ndarray of shape (n,)
-        Integer cluster assignments in {0, 1, ..., K-1}.
+    :param _exp: experiment cluster labels.
+    :param: _x0: point cloud.
+
+    :return: labels: integer cluster assignments in {0, 1, ..., K-1}.
     """
     n = len(_x0)
 
@@ -116,10 +103,6 @@ def get_cluster_labels_for_geometry(_exp, _x0):
     if k_clusters is None:
         k_clusters = 4
 
-    # 2. Deterministic synthetic labels for explicitly clustered geometries.
-    # These assume the geometry generator produced points in block order.
-    # If your generator shuffles points, either store labels when generating
-    # the geometry or permute these labels with the same permutation.
     if geom in {
         "clustered_gaussian",
         "gaussian_mixture",
@@ -128,28 +111,18 @@ def get_cluster_labels_for_geometry(_exp, _x0):
     }:
         return _balanced_block_labels(n, k_clusters)
 
-    # 3. Geometry-specific heuristics for a few common synthetic cases.
-    # These are approximations and should be treated as convenience fallbacks.
-
     if geom == "kcube":
-        # Assign cluster labels by the signs of the first few coordinates.
-        # This creates up to 2^m clusters; cap by k_clusters.
         m = min(_x0.shape[1], max(1, int(np.ceil(np.log2(k_clusters)))))
         bits = (_x0[:, :m] > 0).astype(int)
         raw = bits.dot(1 << np.arange(m))
         return _compress_labels(raw, k_clusters)
 
     if geom == "spiked_gaussian":
-        # Simple sign-based partition along the first principal coordinates
-        # would be nicer, but keep this dependency-light.
         m = min(_x0.shape[1], max(1, int(np.ceil(np.log2(k_clusters)))))
         bits = (_x0[:, :m] > np.median(_x0[:, :m], axis=0)).astype(int)
         raw = bits.dot(1 << np.arange(m))
         return _compress_labels(raw, k_clusters)
 
-    # 4. Last-resort inference fallback.
-    # This is intentionally simple and dependency-light: use a tiny
-    # k-means implementation so you do not need sklearn.
     if getattr(_exp, "allow_inferred_clusters", False):
         return _simple_kmeans_labels(
             _x0,
@@ -231,6 +204,11 @@ def _simple_kmeans_labels(x, n_clusters, seed=0, n_iter=25):
 
 
 def test(_args):
+    """
+    Dumb little functionality test.
+    :param _args: point cloud/cluster num args.
+    :return: just print to check.
+    """
     x, labs1 = make_clustered_gaussian(_args.n, _args.d, _args.k)
     labs2 = _simple_kmeans_labels(x, _args.k)
     labs3 = _balanced_block_labels(_args.n, _args.k)
@@ -249,4 +227,3 @@ if __name__ == "__main__":
     parser.add_argument("-k", type=int)
     args = parser.parse_args()
     test(args)
-
