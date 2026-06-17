@@ -309,12 +309,18 @@ def compute_fidelity(
                     "ph_mode": mode,
                     "metric": f"delta_{metric}",
                     "n_joined": int(len(djoined)),
-                    "pearson_vs_full_vr": corr_or_nan(djoined[f"{delta_col}__full_vr"], djoined[f"{delta_col}__{mode}"], "pearson"),
-                    "spearman_vs_full_vr": corr_or_nan(djoined[f"{delta_col}__full_vr"], djoined[f"{delta_col}__{mode}"], "spearman"),
-                    "mae_vs_full_vr": mae_or_nan(djoined[f"{delta_col}__full_vr"], djoined[f"{delta_col}__{mode}"]),
-                    "rmse_vs_full_vr": rmse_or_nan(djoined[f"{delta_col}__full_vr"], djoined[f"{delta_col}__{mode}"]),
-                    "normalized_mae_vs_full_vr": normalized_mae_or_nan(djoined[f"{delta_col}__full_vr"], djoined[f"{delta_col}__{mode}"]),
-                    "sign_agreement_vs_full_vr": sign_agreement(djoined[f"{delta_col}__full_vr"], djoined[f"{delta_col}__{mode}"]),
+                    "pearson_vs_full_vr": corr_or_nan(djoined[f"{delta_col}__full_vr"],
+                                                      djoined[f"{delta_col}__{mode}"], "pearson"),
+                    "spearman_vs_full_vr": corr_or_nan(djoined[f"{delta_col}__full_vr"],
+                                                       djoined[f"{delta_col}__{mode}"], "spearman"),
+                    "mae_vs_full_vr": mae_or_nan(djoined[f"{delta_col}__full_vr"],
+                                                 djoined[f"{delta_col}__{mode}"]),
+                    "rmse_vs_full_vr": rmse_or_nan(djoined[f"{delta_col}__full_vr"],
+                                                   djoined[f"{delta_col}__{mode}"]),
+                    "normalized_mae_vs_full_vr": normalized_mae_or_nan(djoined[f"{delta_col}__full_vr"],
+                                                                       djoined[f"{delta_col}__{mode}"]),
+                    "sign_agreement_vs_full_vr": sign_agreement(djoined[f"{delta_col}__full_vr"],
+                                                                djoined[f"{delta_col}__{mode}"]),
                 })
 
             ft = transition_epoch(full, group_cols, metric)
@@ -384,7 +390,8 @@ def summarize_fidelity(fidelity: pd.DataFrame, runtime: pd.DataFrame, transition
             median_sign_agreement,
         ])
         error_penalty = 0.0 if not np.isfinite(median_nmae) else min(max(median_nmae, 0.0), 1.0)
-        speed_component = 0.0 if not np.isfinite(speedup) or speedup <= 0 else min(math.log1p(speedup) / math.log1p(20.0), 1.0)
+        speed_component = 0.0 if (not np.isfinite(speedup) or
+                                  speedup <= 0) else min(math.log1p(speedup) / math.log1p(20.0), 1.0)
         score = 0.75 * fidelity_component + 0.25 * speed_component - 0.25 * error_penalty
 
         rows.append({
@@ -395,7 +402,8 @@ def summarize_fidelity(fidelity: pd.DataFrame, runtime: pd.DataFrame, transition
             "median_normalized_mae_vs_full_vr": median_nmae,
             "median_delta_spearman_vs_full_vr": median_delta_spearman,
             "median_delta_sign_agreement_vs_full_vr": median_sign_agreement,
-            "median_transition_epoch_abs_error": float(median_transition_error) if np.isfinite(median_transition_error) else np.nan,
+            "median_transition_epoch_abs_error": float(median_transition_error) if
+            np.isfinite(median_transition_error) else np.nan,
             "speedup_vs_full_vr": speedup,
             "total_ph_time_sec": total_time,
             "ph_recomputed_rate": recompute_rate,
@@ -405,7 +413,8 @@ def summarize_fidelity(fidelity: pd.DataFrame, runtime: pd.DataFrame, transition
     return pd.DataFrame(rows).sort_values(["scaling_score", "mode_tier"], ascending=[False, True])
 
 
-def compute_metric_relationships(all_modes: Dict[str, pd.DataFrame], ph_metrics: Sequence[str], non_ph_metrics: Sequence[str]) -> pd.DataFrame:
+def compute_metric_relationships(all_modes: Dict[str, pd.DataFrame], ph_metrics: Sequence[str],
+                                 non_ph_metrics: Sequence[str]) -> pd.DataFrame:
     rows = []
     for mode, df in all_modes.items():
         pms = [m for m in ph_metrics if m in df.columns]
@@ -511,7 +520,13 @@ def write_report(
     if runtime.empty:
         lines.append("No runtime data available.")
     else:
-        cols = [c for c in ["ph_mode", "rows", "num_runs", "total_ph_time_sec", "mean_ph_time_sec", "speedup_vs_full_vr", "ph_recomputed_rate"] if c in runtime.columns]
+        cols = [c for c in ["ph_mode",
+                            "rows",
+                            "num_runs",
+                            "total_ph_time_sec",
+                            "mean_ph_time_sec",
+                            "speedup_vs_full_vr",
+                            "ph_recomputed_rate"] if c in runtime.columns]
         lines.append(runtime[cols].to_markdown(index=False))
     lines.append("")
 
@@ -543,7 +558,11 @@ def write_report(
 
     lines.append("## How to read this")
     lines.append("")
-    lines.append("Use `full_vr` as the reference, but do not demand exact equality. For scaling, prefer modes that preserve rank/order and epoch-wise trends while producing material speedup. A shortcut with biased absolute persistence values can still be acceptable if its Spearman correlation, trend sign agreement, mechanism ordering, and downstream relationships are stable.")
+    lines.append("Use `full_vr` as the reference, but do not demand exact equality. "
+                 "For scaling, prefer modes that preserve rank/order and epoch-wise trends while "
+                 "producing material speedup. A shortcut with biased absolute persistence values "
+                 "can still be acceptable if its Spearman correlation, trend sign agreement, "
+                 "mechanism ordering, and downstream relationships are stable.")
     lines.append("")
 
     (out_dir / "comparison_report.md").write_text("\n".join(lines))

@@ -7,8 +7,8 @@ import pandas as pd
 
 
 EXTERNAL_ROOT = "/media/alkal/WD_BLACK/evolve_collapse"
-METRIC_ROOT = os.path.join(EXTERNAL_ROOT, "metric_outputs")
-SUMMARY_ROOT = os.path.join(EXTERNAL_ROOT, "metric_summaries")
+METRIC_ROOT = os.path.join(EXTERNAL_ROOT, "../old/metric_outputs")
+SUMMARY_ROOT = os.path.join(EXTERNAL_ROOT, "../old/metric_summaries")
 ASSET_ROOT = os.path.join(EXTERNAL_ROOT, "summary_assets")
 
 DEFAULT_THRESHOLDS = [0.05, 0.10, 0.20]

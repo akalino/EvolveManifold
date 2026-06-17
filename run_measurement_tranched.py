@@ -1,22 +1,6 @@
 """
-Measure metrics over fragile-hardware parquet checkpoint runs.
-
 This is the measurement-side companion to the parquet checkpoint runner.
-
-Design goals:
-- Traverse the new stable /mnt/wd_black/research/evolve_collapse layout by default.
-- Discover runs from per-run manifest.json files, not by crawling for old .pkl files.
-- Load new checkpoints/checkpoints/ckpt_epoch_XXXX.parquet files.
-- Preserve limited backward compatibility with old ckpt_epoch_XXXX.pkl files.
-- Write one measured output directory per run:
-    metric_outputs/<ph_mode>/<experiment>/<mechanism>/<model>/
-        metrics.parquet
-        metrics.csv                  optional, on by default for easy inspection
-        measurement_manifest.json
-- Use atomic writes for metrics and manifests.
-- Avoid silently measuring incomplete runs unless explicitly requested.
 """
-
 from __future__ import annotations
 
 import argparse
@@ -60,16 +44,85 @@ os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 os.environ.setdefault("MKL_NUM_THREADS", "1")
 os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
 
-LOCAL_ROOT = os.path.expanduser("~/evolve_local/evolve_collapse")
+DEFAULT_CONFIG_PATH = "configs/tranches/primary_d50.json"
 
-EXTERNAL_ROOT = os.environ.get(
-    "EVOLVE_COLLAPSE_ROOT",
-    os.environ.get("EVOLVE_ROOT", LOCAL_ROOT),
-)
-CHECKPOINT_ROOT = os.path.join(EXTERNAL_ROOT, "evolve_checkpoints")
-METRIC_ROOT = os.path.join(EXTERNAL_ROOT, "metric_outputs")
-SUMMARY_ROOT = os.path.join(EXTERNAL_ROOT, "metric_summaries")
-ASSET_ROOT = os.path.join(EXTERNAL_ROOT, "summary_assets")
+
+def expand_user_vars(value: str) -> str:
+    """Expand environment variables and user markers in a path string.
+
+    :param value: Path-like string.
+    :return: Expanded path string.
+    """
+    return os.path.abspath(os.path.expandvars(os.path.expanduser(value)))
+
+
+def load_config(path: str | Path) -> Dict[str, Any]:
+    """Load a JSON tranche configuration.
+
+    :param path: Configuration file path.
+    :return: Parsed configuration dictionary.
+    """
+    path = Path(path)
+    with open(path, "r") as f:
+        return json.load(f)
+
+
+def resolve_base_root(paths: Dict[str, Any]) -> str:
+    """Resolve the experiment base root from environment-aware config.
+
+    :param paths: ``paths`` block from a tranche configuration.
+    :return: Absolute base root path.
+    """
+    env_name = paths.get("base_root_env", "EVOLVE_COLLAPSE_ROOT")
+    fallback_env_name = paths.get("base_root_fallback_env", "EVOLVE_ROOT")
+
+    base_root = (
+        os.environ.get(env_name)
+        or os.environ.get(fallback_env_name)
+        or paths.get("base_root_default")
+        or "~/evolve_local/evolve_collapse"
+    )
+    return expand_user_vars(base_root)
+
+
+def resolve_path_config(config: Dict[str, Any]) -> Dict[str, str]:
+    """Resolve checkpoint and metric output paths from config.
+
+    :param config: Tranche configuration dictionary.
+    :return: Dictionary of absolute paths.
+    """
+    paths = config.get("paths", {})
+    base_root = resolve_base_root(paths)
+
+    def subdir_path(key: str, default_subdir: str) -> str:
+        explicit = paths.get(key)
+        if explicit:
+            return expand_user_vars(explicit)
+        return os.path.join(base_root, paths.get(f"{key}_subdir", default_subdir))
+
+    return {
+        "base_root": base_root,
+        "checkpoint_root": subdir_path("checkpoint_root", "evolve_checkpoints"),
+        "metric_root": subdir_path("metric_root", "old/metric_outputs"),
+        "summary_root": subdir_path("summary_root", "old/metric_summaries"),
+        "asset_root": subdir_path("asset_root", "summary_assets"),
+    }
+
+
+def default_path_config() -> Dict[str, str]:
+    """Return path defaults used when no config is supplied.
+
+    :return: Dictionary of absolute paths.
+    """
+    config = {
+        "paths": {
+            "base_root_env": "EVOLVE_COLLAPSE_ROOT",
+            "base_root_fallback_env": "EVOLVE_ROOT",
+            "base_root_default": "~/evolve_local/evolve_collapse",
+        }
+    }
+    return resolve_path_config(config)
+
 
 OLD_MEDIA_PREFIX = "/media/alex/WD_BLACK"
 CKPT_PARQUET_RE = re.compile(r"ckpt_epoch_(\d+)\.parquet$")
@@ -447,141 +500,88 @@ def should_use_too_big(run_dir: str | Path) -> bool:
 
 
 
-def canonical_regime_pair(meta: Dict[str, Any]) -> bool:
-    """Small full-VR audit/calibration panel."""
-    return (
-        (meta.get("geometry") == "spiked_gaussian" and meta.get("mechanism") == "linear_to_kplane")
-        or (meta.get("geometry") == "isotropic" and meta.get("mechanism") == "radial_collapse")
-        or (meta.get("geometry") == "clustered_gaussian" and meta.get("mechanism") == "cluster_tightening")
-        or (meta.get("geometry") == "clustered_gaussian" and meta.get("mechanism") == "cluster_merging")
-        or (meta.get("geometry") == "torus" and meta.get("mechanism") == "hole_fill")
-    )
+def values_match(value: Any, allowed: Any) -> bool:
+    """Return whether a metadata value matches a config condition.
+
+    :param value: Metadata value from a run manifest.
+    :param allowed: Scalar value or list of allowed values from config.
+    :return: True if the condition is satisfied.
+    """
+    if allowed is None:
+        return True
+    if not isinstance(allowed, list):
+        allowed = [allowed]
+
+    for item in allowed:
+        if isinstance(value, float) or isinstance(item, float):
+            try:
+                if abs(float(value) - float(item)) < 1e-12:
+                    return True
+            except (TypeError, ValueError):
+                pass
+        if value == item:
+            return True
+    return False
 
 
-def in_tranche(meta: Dict[str, Any], tranche: str) -> bool:
-    """Named measurement gates for controlled benchmark scaling."""
-    if tranche in {"all", "", None}:
+def matches_filter(meta: Dict[str, Any], filter_config: Dict[str, Any]) -> bool:
+    """Evaluate one measurement filter against run metadata.
+
+    A filter may contain ordinary key/value conditions plus an ``any_of`` list.
+    Ordinary conditions must all match. At least one ``any_of`` clause must match
+    when ``any_of`` is present.
+
+    :param meta: Run metadata.
+    :param filter_config: Measurement filter dictionary from a config file.
+    :return: True when the run belongs to the configured tranche.
+    """
+    for key, allowed in filter_config.items():
+        if key == "any_of":
+            continue
+        if not values_match(meta.get(key), allowed):
+            return False
+
+    any_of = filter_config.get("any_of")
+    if not any_of:
         return True
 
-    geometry = meta.get("geometry")
-    mechanism = meta.get("mechanism")
-    schedule = meta.get("schedule")
-    severity = meta.get("severity")
-    n = meta.get("n")
-    d = meta.get("d")
-    seed = meta.get("seed")
-    mover_frac = meta.get("mover_frac")
-    noise = meta.get("noise")
-
-    main_geometries = {
-        "clustered_gaussian",
-        "spiked_gaussian",
-        "torus",
-        "isotropic",
-        "sphere",
-        "swiss",
-    }
-    main_mechanisms = {
-        "linear_to_kplane",
-        "radial_collapse",
-        "cluster_tightening",
-        "cluster_merging",
-        "hole_fill",
-    }
-    core_seeds = {5, 17, 26, 31, 37, 51, 123, 821, 1111, 1823}
-    audit_seeds = {5, 17, 26}
-    core_schedules = {"linear", "sigmoid"}
-    core_severities = {"moderate", "strong"}
-    core_mover_fracs = {0.25, 1.0}
-
-    if tranche == "canonical":
-        return (
-            canonical_regime_pair(meta)
-            and n == 1000
-            and d == 50
-            and schedule == "linear"
-            and severity == "moderate"
-            and mover_frac == 1.0
-            and noise == 0.0
-            and seed in core_seeds
-        )
-
-    if tranche == "primary_d50":
-        return (
-            geometry in main_geometries
-            and mechanism in main_mechanisms
-            and n == 1000
-            and d == 50
-            and schedule in core_schedules
-            and severity in core_severities
-            and mover_frac in core_mover_fracs
-            and noise == 0.0
-            and seed in core_seeds
-        )
-
-    if tranche == "primary_d100":
-        return (
-            geometry in main_geometries
-            and mechanism in main_mechanisms
-            and n == 1000
-            and d == 100
-            and schedule in core_schedules
-            and severity in core_severities
-            and mover_frac in core_mover_fracs
-            and noise == 0.0
-            and seed in core_seeds
-        )
-
-    if tranche == "noise_robustness":
-        return (
-            geometry in main_geometries
-            and mechanism in main_mechanisms
-            and n == 1000
-            and d == 50
-            and schedule == "linear"
-            and severity in core_severities
-            and mover_frac in core_mover_fracs
-            and noise in {0.01, 0.05}
-            and seed in audit_seeds
-        )
-
-    if tranche == "n_scaling":
-        return (
-            geometry in main_geometries
-            and mechanism in main_mechanisms
-            and n in {500, 2000}
-            and d == 50
-            and schedule == "linear"
-            and severity == "moderate"
-            and mover_frac == 1.0
-            and noise == 0.0
-            and seed in audit_seeds
-        )
-
-    if tranche == "ph_audit":
-        return (
-            canonical_regime_pair(meta)
-            and n == 1000
-            and d in {50, 100}
-            and schedule == "linear"
-            and severity == "moderate"
-            and mover_frac == 1.0
-            and noise == 0.0
-            and seed in audit_seeds
-        )
-
-    raise ValueError(
-        f"Unknown tranche={tranche!r}. Expected one of: "
-        "all, canonical, primary_d50, primary_d100, noise_robustness, "
-        "n_scaling, ph_audit."
-    )
+    return any(matches_filter(meta, clause) for clause in any_of)
 
 
-def filter_run_dirs_by_tranche(run_dirs: Iterable[Path], tranche: str) -> List[Path]:
+def load_tranche_filter(tranche: str, config_path: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Load a tranche filter from a config path or tranche name.
+
+    :param tranche: Named tranche, such as ``canonical`` or ``primary_d50``.
+    :param config_path: Optional explicit config path.
+    :return: Measurement filter dictionary, or None for ``all``.
+    """
+    if tranche in {"all", "", None} and config_path is None:
+        return None
+
+    if config_path is None:
+        config_path = f"configs/tranches/{tranche}.json"
+
+    config = load_config(config_path)
+    return config.get("measurement_filter")
+
+
+def in_tranche(meta: Dict[str, Any], tranche_filter: Optional[Dict[str, Any]]) -> bool:
+    """Return whether metadata belongs to a config-defined tranche.
+
+    :param meta: Run metadata.
+    :param tranche_filter: Measurement filter from a config file.
+    :return: True if the run should be measured.
+    """
+    if tranche_filter is None:
+        return True
+    return matches_filter(meta, tranche_filter)
+
+
+def filter_run_dirs_by_tranche(run_dirs: Iterable[Path], tranche_filter: Optional[Dict[str, Any]]) -> List[Path]:
     kept: List[Path] = []
     for run_dir in run_dirs:
         meta = metadata_from_run_dir(run_dir)
-        if in_tranche(meta, tranche):
+        if in_tranche(meta, tranche_filter):
             kept.append(Path(run_dir))
     return sorted(kept, key=lambda p: str(p))
 
@@ -726,8 +726,8 @@ def combine_metric_outputs(results_df: pd.DataFrame, out_root: str | Path, ph_mo
 
 
 def main(
-    root_dir: str = CHECKPOINT_ROOT,
-    out_dir: str = METRIC_ROOT,
+    root_dir: Optional[str] = None,
+    out_dir: Optional[str] = None,
     ph_mode: str = "full_vr",
     workers: int = 1,
     include_incomplete: bool = False,
@@ -735,13 +735,23 @@ def main(
     write_csv: bool = True,
     allow_old_media: bool = False,
     tranche: str = "all",
+    config_path: Optional[str] = None,
 ) -> None:
+    config = load_config(config_path) if config_path else {}
+    paths = resolve_path_config(config) if config else default_path_config()
+    if root_dir is None:
+        root_dir = paths["checkpoint_root"]
+    if out_dir is None:
+        out_dir = paths["metric_root"]
+
+    tranche_filter = load_tranche_filter(tranche, config_path=config_path)
+
     guard_storage_path(root_dir, allow_old_media=allow_old_media)
     guard_storage_path(out_dir, allow_old_media=allow_old_media)
     require_writable_dir(out_dir)
 
     discovered_run_dirs = find_run_dirs(root_dir, include_incomplete=include_incomplete)
-    run_dirs = filter_run_dirs_by_tranche(discovered_run_dirs, tranche)
+    run_dirs = filter_run_dirs_by_tranche(discovered_run_dirs, tranche_filter)
     print(f"[INFO] root_dir={root_dir}")
     print(f"[INFO] out_dir={out_dir}")
     print(f"[INFO] discovered {len(discovered_run_dirs)} run directories")
@@ -794,8 +804,13 @@ def main(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Measure metrics over parquet checkpointed trajectories.")
-    parser.add_argument("--root-dir", default=CHECKPOINT_ROOT, help="Root directory containing checkpointed trajectory runs.")
-    parser.add_argument("--out-dir", default=METRIC_ROOT, help="Root directory where metric outputs will be written.")
+    parser.add_argument("--root-dir", default=None, help="Root directory containing checkpointed trajectory runs. Defaults to config paths.")
+    parser.add_argument("--out-dir", default=None, help="Root directory where metric outputs will be written. Defaults to config paths.")
+    parser.add_argument(
+        "--config",
+        default=None,
+        help="Path to a JSON tranche config. If omitted, --tranche loads configs/tranches/<tranche>.json.",
+    )
     parser.add_argument(
         "--ph-mode",
         default="online_landmark_dynamic_support",
@@ -814,16 +829,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--tranche",
         default="all",
-        choices=[
-            "all",
-            "canonical",
-            "primary_d50",
-            "primary_d100",
-            "noise_robustness",
-            "n_scaling",
-            "ph_audit",
-        ],
-        help="Named gate selecting a controlled benchmark slice to measure.",
+        help="Named config-defined benchmark slice to measure.",
     )
     parser.add_argument("--workers", type=int, default=1, help="Number of parallel worker processes. Use 1 first.")
     parser.add_argument("--include-incomplete", action="store_true", help="Measure runs even if their checkpoint manifest is not completed.")
@@ -842,4 +848,5 @@ if __name__ == "__main__":
         write_csv=not args.no_csv,
         allow_old_media=args.allow_old_media,
         tranche=args.tranche,
+        config_path=args.config,
     )

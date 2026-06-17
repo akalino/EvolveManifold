@@ -4,12 +4,13 @@ __pycache__/
 venv/
 .env
 .ipynb_checkpoints/
+.idea/
 
 logs/
-metric_outputs/
-metric_summaries/
-cluster_labels/
-ph_modes/
+old/metric_outputs/
+old/metric_summaries/
+old/cluster_labels/
+old/ph_modes/
 summary_assets/
 results/
 *.parquet

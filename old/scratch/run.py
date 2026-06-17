@@ -9,18 +9,18 @@ import numpy as np
 
 
 from checkpoint import CheckpointManager
-from cluster_mechanic import step_cluster_collapse, cluster_params_from_severity
+from mechanisms.cluster_mechanic import step_cluster_collapse, cluster_params_from_severity
 from clustering import make_clustered_gaussian, get_cluster_labels_for_geometry
 from geometry import get_geometry
 from experiment_dataclasses import TrajectoryExperiment
-from linear_mechanic import LinearSpectralParams, step_linear_spectral
-from nonlinear_mechanic import NonLinearParams, step_nonlinear_projection
+from mechanisms.linear_mechanic import LinearSpectralParams, step_linear_spectral
+from mechanisms.nonlinear_mechanic import NonLinearParams, step_nonlinear_projection
 from projectors import (proj_to_k_plane, proj_to_sphere,
                         proj_to_torus, proj_to_paraboloid)
-from radial_mechanic import step_radial, radial_params_from_severity
-from topological_mechanisms import (HoleFillParams, PinchParams, BridgeParams,
-                                    step_hole_fill, step_loop_pinch,
-                                    step_bridge_across_hole)
+from mechanisms.radial_mechanic import step_radial, radial_params_from_severity
+from mechanisms.topological_mechanisms import (HoleFillParams, PinchParams, BridgeParams,
+                                               step_hole_fill, step_loop_pinch,
+                                               step_bridge_across_hole)
 from trajectory import dynamics
 
 EXTERNAL_ROOT = "/mnt/wd_black/research/evolve_collapse"
