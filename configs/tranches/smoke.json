@@ -1,0 +1,76 @@
+{
+  "name": "smoke",
+  "description": "Minimal end-to-end smoke test for parquet checkpoint generation and metric measurement.",
+  "paths": {
+    "base_root_env": "EVOLVE_COLLAPSE_ROOT",
+    "base_root_fallback_env": "EVOLVE_ROOT",
+    "base_root_default": "~/evolve_local/evolve_collapse_smoke",
+    "checkpoint_root_subdir": "evolve_checkpoints",
+    "metric_root_subdir": "metric_outputs",
+    "summary_root_subdir": "metric_summaries",
+    "asset_root_subdir": "summary_assets",
+    "cluster_label_root_subdir": "cluster_labels"
+  },
+  "generation_grid": {
+    "geometries": [
+      "isotropic",
+      "torus"
+    ],
+    "mechanisms": [
+      "linear_to_kplane",
+      "hole_fill"
+    ],
+    "valid_pairs": [
+      {
+        "geometry": "isotropic",
+        "mechanism": "linear_to_kplane"
+      },
+      {
+        "geometry": "torus",
+        "mechanism": "hole_fill"
+      }
+    ],
+    "schedules": [
+      "linear"
+    ],
+    "severities": [
+      "moderate"
+    ],
+    "mover_fracs": [
+      1.0
+    ],
+    "noises": [
+      0.0
+    ],
+    "n_values": [
+      64
+    ],
+    "d_values": [
+      8
+    ],
+    "seeds": [
+      0
+    ],
+    "num_steps": 4,
+    "checkpoint_every": 2
+  },
+  "measurement_filter": {
+    "n": 64,
+    "d": 8,
+    "schedule": "linear",
+    "severity": "moderate",
+    "mover_frac": 1.0,
+    "noise": 0.0,
+    "seed": 0,
+    "any_of": [
+      {
+        "geometry": "isotropic",
+        "mechanism": "linear_to_kplane"
+      },
+      {
+        "geometry": "torus",
+        "mechanism": "hole_fill"
+      }
+    ]
+  }
+}

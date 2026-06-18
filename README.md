@@ -23,8 +23,9 @@ itself is intentionally synthetic and controlled.
 
 ## Repository status
 
-This repository is under active development. The current focus is cleaning and 
-stabilizing the benchmark pipeline for reproducible local and larger-scale runs.
+This repository release is stable for the benchmark pipeline, both local and larger-scale runs.
+Continued expansions using optimal transport metrics, distance-to-measure filtrations, and 
+additional validation assets are under development.
 
 ## Core idea
 
@@ -47,27 +48,26 @@ The intended pipeline is:
 
 ```bash
 # 1. Generate parquet checkpoints and a manifest.
-python run_parquet_manifest.py
+python run_cloud_manifest.py
 
 # 2. Measure checkpoints in parallel.
-python measure_checkpoints_parallel_parquet.py
+python run_measurement_tranched.py
 
 # 3. Summarize metric outputs.
-python summarize_metric_results.py
+python scripts/summarize_metric_results.py
 
 # 4. Compute detection-time summaries.
-python compute_detection_times.py
+python analysis/compute_detection_times.py
 
 # 5. Generate paper-facing artifacts.
-python make_canonical_detection_artifacts.py
-python make_canonical_fidelity_comparison.py
+python scripts/make_canonical_detection_artifacts.py
+python scripts/make_canonical_fidelity_comparison.py
 ```
 
 ## Expected output structure
 
 A typical run should produce checkpoint directories, per-run metric outputs, 
 combined metric tables, and paper-facing artifacts.
-
 
 Output categories:
 
@@ -83,92 +83,6 @@ logs/                # run logs
 Large benchmark assets should be treated as external artifacts rather than 
 ordinary source files.
 
-## Important scripts
-
-### Checkpoint generation
-
-`run_parquet_manifest.py` is the canonical checkpoint-generation entry point.
-
-It is responsible for generating synthetic trajectories, writing checkpoint files,
-and recording metadata needed for downstream measurement.
-
-### Metric measurement
-
-`measure_checkpoints_parallel_parquet.py` is the canonical metric runner.
-
-It discovers runs from a manifest, measures each checkpoint trajectory, 
-skips completed outputs when possible, and writes per-run metric files. 
-The output format is parquet.
-
-### Tranche definitions
-
-`measurement_tranched.py` defines benchmark tranches or slices used to organize 
-larger experiments.
-
-Tranches are useful when the full benchmark grid is too large to run in a single 
-local pass.
-We are grateful to the NSF ACCESS program that has allowed for scaling to build 
-meaningful high-dimensional benchmarks.
-
-### Metric summaries
-
-`summarize_metric_results.py` aggregates per-run metric outputs into summary 
-tables.
-
-### Detection-time analysis
-
-`compute_detection_times.py` and `detection_time.py` compute when each metric 
-detects a controlled collapse event under a specified thresholding or comparison 
-rule.
-
-### Persistent-homology workflow
-
-`ph_workflow.py` contains persistent-homology workflow modes, including full 
-Vietoris--Rips, landmark, skip, fixed-support, k-nearest-neighbor, and 
-event-driven variants.
-
-This file is central to experiments comparing scalable persistent-homology 
-approximations.
-
-### Paper artifacts
-
-The paper-facing artifact scripts generate curated tables and figures from 
-measured outputs.
-
-Current canonical artifact scripts include:
-
-```text
-make_canonical_detection_artifacts.py
-make_canonical_fidelity_comparison.py
-generate_trajectory_panels.py
-make_figure2_trajectories.py
-```
-
-Figure-generation scripts may eventually move under `scripts/figures/`.
-
-## Experiment plan
-
-The active experiment plan is documented in:
-
-```text
-EXPERIMENTS.md
-```
-
-The benchmark is organized around several experiment families:
-
-1. Stability calibration.
-2. Schedule calibration.
-3. Controlled benchmark runs.
-4. Topology-specific experiments.
-5. Persistent-homology workflow comparisons.
-
-The main benchmark questions are:
-
-* Which metric families detect collapse earliest?
-* Which metrics are robust to noise?
-* Which metrics are specific to particular collapse mechanisms?
-* Which persistent-homology approximations preserve enough signal to be useful at scale?
-* Which workflows are feasible for high-dimensional, high-cardinality point clouds?
 
 ## Metric families
 
@@ -180,6 +94,46 @@ These measure changes in distances, local structure, cluster separation,
 covariance geometry, or intrinsic dimension.
 
 ### Spectral metrics
+
+These measure changes in covariance spectra, anisotropy, effective rank, 
+or singular-value structure.
+
+### Topological metrics
+
+These measure changes in persistent-homology summaries, including Betti curves, 
+persistence diagrams, and derived statistics.
+
+### Workflow diagnostics
+
+For persistent-homology workflows, the benchmark also tracks approximation 
+fidelity, support stability, edge precision, and event-trigger behavior.
+
+
+## Installation
+
+Create and activate a virtual environment:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+```
+
+Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+## Smoke test
+
+After installing the dependencies, run the minimal end-to-end smoke test:
+
+```bash
+python scripts/smoke_test.py
+```
+
+A formal citation will be added once the associated benchmark paper and stable 
+artifact release are available.
 
 These measure changes in covariance spectra, anisotropy, effective rank, 
 or singular-value structure.
