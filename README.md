@@ -283,3 +283,31 @@ When using results from this repository, record:
 A formal citation will be added once the associated benchmark paper and stable 
 artifact release are available.
 
+
+
+## ACCESS Migration
+
+```angular2html
+mkdir -p ~/evolve_local/evolve_collapse
+mkdir -p ~/evolve_local/evolve_collapse/evolve_checkpoints
+mkdir -p ~/evolve_local/evolve_collapse/metric_outputs
+mkdir -p ~/evolve_local/evolve_collapse/logs
+
+export EVOLVE_ROOT="$HOME/evolve_local/evolve_collapse"
+```
+
+```angular2html
+python run_parquet_mainfest.py \
+  --root-dir "$EVOLVE_ROOT/evolve_checkpoints" \
+  --tranche canonical
+```
+
+```angular2html
+python measure_checkpoints_parallel_parquet_tranched.py \
+  --root-dir "$EVOLVE_ROOT/evolve_checkpoints" \
+  --out-dir "$EVOLVE_ROOT/metric_outputs" \
+  --ph-mode online_landmark_dynamic_support \
+  --tranche canonical \
+  --workers 2 \
+  --no-csv
+```
