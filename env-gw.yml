@@ -1,0 +1,36 @@
+name: evolve-gw
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+
+  # Core numerical stack
+  - numpy
+  - scipy
+  - pandas
+  - scikit-learn
+  - matplotlib
+  - tqdm
+
+  # Parquet / data IO
+  - pyarrow
+  - fastparquet
+
+  # TDA / geometry stack likely useful for this repo
+  - gudhi
+  - ripser
+  - persim
+
+  # Optimal transport
+  - pot
+
+  # Jupyter/dev convenience
+  - ipykernel
+  - jupyterlab
+
+  # Keep pip available for local editable install or missing packages
+  - pip
+  - pip:
+      # Add repo-only pip packages here if needed.
+      # Example:
+      # - umap-learn
