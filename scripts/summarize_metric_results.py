@@ -9,7 +9,7 @@ import pandas as pd
 
 from tqdm import tqdm
 
-from detection_time import DetectionConfig, detection_time
+from analysis.detection_time import DetectionConfig, detection_time
 
 
 FILE_RE = re.compile(

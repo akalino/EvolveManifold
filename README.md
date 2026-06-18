@@ -1,237 +1,287 @@
-# Forcing Collapse via Evolution
+# EvolveManifold
 
-Generating synthetic point-clouds and applying "collapse trajectories"
-that are applied in an "evolution-like" process. 
-This forces a variety of geometric collapses over time, providing
-checkpoints that can be loaded to apply statistical persistent homology metrics to.
+Synthetic evolving point-cloud benchmarks for studying geometric, spectral, and 
+topological signatures of collapse.
 
-Currently, the main objective is to apply collapse mechanisms in order to create checkpoints (plk files)
-for later analysis.
+`EvolveManifold` generates controlled point-cloud trajectories in which a 
+known geometry is progressively transformed by a known collapse mechanism. 
+These trajectories can then be measured with geometric, spectral, and 
+persistent-homology-based metrics to study which detectors respond earliest, 
+most reliably, and most specifically to different forms of collapse.
 
-We split the experiments into six main categories (presented below):
-starting geometry, collapse mechanism, collapse schedule, collapse severity, fraction of moved points, and noise.
+The project is designed around a parquet-first workflow:
 
-## Geometry
+1. Generate synthetic point-cloud checkpoints.
+2. Store checkpoints and metadata in a manifest-driven directory layout.
+3. Measure collapse metrics over each trajectory.
+4. Aggregate metric outputs.
+5. Generate tables and figures for analysis and reporting.
 
-- kcube
-- kplane
-- sphere
-- torus
-- swiss roll
-- paraboloid
-- spiked gaussian
+The motivating use case is collapse detection in high-dimensional representations, 
+including neural-network and language-model hidden states, but the benchmark 
+itself is intentionally synthetic and controlled.
 
-for a total of (7) to test. 
+## Repository status
 
-## Collapse Mechanism
+This repository is under active development. The current focus is cleaning and 
+stabilizing the benchmark pipeline for reproducible local and larger-scale runs.
 
-- linear to kplane
-- nonlinear to kplane
-- nonlinear to sphere
-- nonlinear to sphere
-- nonlinear to torus
-- nonlinear to paraboloid
+## Core idea
 
-for a total of (6) to test.
+A benchmark run consists of:
 
-TODO: radial collapse, cluster collapse (select anchors and provide attraction)
+* a starting geometry, such as an isotropic cloud, clustered Gaussian, torus, sphere, cube, or spiked Gaussian;
+* a collapse mechanism, such as projection, radial collapse, cluster tightening, cluster merging, or hole filling;
+* a schedule controlling how collapse severity changes over time;
+* a sequence of checkpoints;
+* a collection of metrics computed at each checkpoint.
 
-## Schedule Types
+The result is a controlled trajectory where the ground-truth collapse process 
+is known. 
+This makes it possible to compare metric families by detection time, robustness, 
+and failure mode.
 
-- linear
-- exponential
-- sigmoid/delayed
+## Canonical workflow
 
-for a total of (3) to test.
+The intended pipeline is:
 
-## Severity Parameters
+```bash
+# 1. Generate parquet checkpoints and a manifest.
+python run_parquet_manifest.py
 
-- total steps
-- initial collapse strength
-- final collapse strength
-- type of schedule
+# 2. Measure checkpoints in parallel.
+python measure_checkpoints_parallel_parquet.py
 
-Severity should be defined per each mechanism type:
+# 3. Summarize metric outputs.
+python summarize_metric_results.py
 
-Linear endpoint shrinkage:
-- weak alpha_t: 0.5
-- med alpha_t = 0.2
-- strong alpha_t = 0.05
+# 4. Compute detection-time summaries.
+python compute_detection_times.py
 
-Nonlinear projections:
-- weak relax=0.2, eps_t=0.05
-- med relax=0.5, eps_t=0.02
-- string relax=1.0, eps_t=0.005
+# 5. Generate paper-facing artifacts.
+python make_canonical_detection_artifacts.py
+python make_canonical_fidelity_comparison.py
+```
 
-## Points Moved
+## Expected output structure
 
-- Self-explanatory, just sweep
-- try {0.25, 0.5, 1.0} as an initial small test on synthetics
+A typical run should produce checkpoint directories, per-run metric outputs, 
+combined metric tables, and paper-facing artifacts.
 
-for a total of (3) to test.
 
-## Noise
+Output categories:
 
-- Also self-explanatory, try {0.0, 0.005, 0.01, 0.03, 0.05}
+```text
+checkpoints/          # generated parquet checkpoint trajectories
+metric_outputs/      # per-run metric outputs
+metric_summaries/    # aggregate metric summaries
+figures/             # curated paper-facing figures
+tables/              # curated paper-facing tables
+logs/                # run logs
+```
 
-for a total of (5) to test.
+Large benchmark assets should be treated as external artifacts rather than 
+ordinary source files.
 
+## Important scripts
 
-# Total Checkpoints (at a single seed)
+### Checkpoint generation
 
-Thus far, (5 x 3 x 3 x 3 x x 6 x 7) = 5,670.
+`run_parquet_manifest.py` is the canonical checkpoint-generation entry point.
 
-# Expansion Roadmap
+It is responsible for generating synthetic trajectories, writing checkpoint files,
+and recording metadata needed for downstream measurement.
 
-- Scale up ambient dimension and sample size, run calibration pipeline
-- Track collapse dynamically on snapshots along controlled collapse trajectories
+### Metric measurement
 
-## Idea
+`measure_checkpoints_parallel_parquet.py` is the canonical metric runner.
 
-Two objectives:
+It discovers runs from a manifest, measures each checkpoint trajectory, 
+skips completed outputs when possible, and writes per-run metric files. 
+The output format is parquet.
 
-### Objective 1
+### Tranche definitions
 
-See if the mechanism taxonomy stats consistent with the original results.
-Questions:
+`measurement_tranched.py` defines benchmark tranches or slices used to organize 
+larger experiments.
 
-- Does DTM continue to improve robustness relative to VR?
-- Is MTE still more sensitive than TP arcoss mechanisms?
-- Does calibration remain near nominal over the expanded null suite?
-- Does power improve or degrade in a predictive fashion w.r.t $n, d, \varepsilon$?
+Tranches are useful when the full benchmark grid is too large to run in a single 
+local pass.
+We are grateful to the NSF ACCESS program that has allowed for scaling to build 
+meaningful high-dimensional benchmarks.
 
-### Objective 2
+### Metric summaries
 
-Instead of estimating only on the `bookends', we can sample along the collapse trajectory
-
-$X^{(0)}, X^{(1)}, \ldots, X^{(T)}$
+`summarize_metric_results.py` aggregates per-run metric outputs into summary 
+tables.
 
-where $X^{(0)}$ is healthy and $X^{(T)}$ is the final collapsed state.
-Questions:
-
-- How early in the process does the PH summary detect collapse?
-- Which summaries respond monotonically (or near monotonically)?
-- Do the PH summaries fire before the standard spectral metrics?
-
-## Experiments
-
-### Scaling 
-
-We keep the same mechanisms as the original paper:
-- Mechanism A: linear/spectral collapse,
-- Mechanism B: nonlinear support collapse, and
-- Mechanism C: contamination.
-
-We use the same PH filtrations:
-- VR
-- DTM
-- Consider witness complex again for speed/robustness comparison.
-
-We can expand the PH metrics:
-- Total persistence (TP)
-- Mean tail excess (MTE)
-- Max persistence (MP)
-- Top five persistence (TFP)
-- Betti curve area (BCA)
-- Betti curve peak (BCP)
-- Betti curve delta (BCD)
-
-still computed over homology dimensions $q \in \{0,1,2\}.
-
-Expansions to point cloud sizes:
-- Initial aim:
-- $n \in \{250, 500, 1000, 2000, 5000\}$
-- $d \in \{25, 50, 100, 200, 300\}$
-- stress test at $n=10000, d \in \{200, 500\}
-
-For each mechanism class and null, start with 100 replications, then progress to 500 for finalization.
-
-For each alternative collapse condition $\theta$, estimate the power
-Compute a regression on performance as a function
-
-$\widehat{\pi}(\theta) \sim f(n,d,\varepsilon,\text{mechanism, filtration, metrics})$
-
-### Snapshot / trajectory study
-
-For each geometry family, define a trajectory
-$$
-X^{(t)} = \Phi_t(X^{(0)}), \qquad t=0,1,\dots,T,
-$$
-where $\Phi_0$ is the identity and $\Phi_T$ produces the target collapsed configuration.
-
-#### Linear collapse
-
-Let $X^{(0)} \subset \mathbb{R}^d$ be healthy. Define
-$$
-X^{(t)} = A_t X^{(0)},
-$$
-where $A_t$ gradually suppresses variance along selected directions.
-
-For example,
-$$
-A_t = \mathrm{diag}(1,\dots,1,\lambda_t,\dots,\lambda_t),
-\qquad
-\lambda_t \downarrow 0.
-$$
-
-#### Nonlinear-support collapse
-
-Map points toward a lower-dimensional nonlinear set $M$ by
-$$
-X^{(t)} = (1-\gamma_t)X^{(0)} + \gamma_t \,\Pi_M(X^{(0)}),
-$$
-where $\Pi_M$ is a projection or nearest-point map onto $M$, and
-$$
-0=\gamma_0 < \gamma_1 < \cdots < \gamma_T = 1.
-$$
-
-#### Contamination / heterogeneity collapse
-
-Increase contamination or mixture imbalance over time:
-$$
-X^{(t)} \sim (1-\rho_t)P_{\mathrm{healthy}} + \rho_t P_{\mathrm{contam}},
-\qquad
-\rho_t \uparrow 1.
-$$
-
-### Detection-time metrics
-
-Define the first detection time of a test statistic $T$ as
-$$
-\tau_{\mathrm{det}}(T)
-=
-\min\{t : T(X^{(t)}) > c_\alpha(T;N)\},
-$$
-with $\tau_{\mathrm{det}}(T)=\infty$ if no detection occurs.
-
-To compare methods, summarize:
-$$
-\mathbb{E}[\tau_{\mathrm{det}}(T)],
-\qquad
-\Pr\big(\tau_{\mathrm{det}}(T) < \infty\big),
-$$
-and the distribution of $\tau_{\mathrm{det}}(T)$ across replicates.
-
-A useful normalized version is
-$$
-\widetilde{\tau}_{\mathrm{det}}(T)
-=
-\frac{\tau_{\mathrm{det}}(T)}{T},
-$$
-so values lie in $[0,1]$.
-
-### Monotonicity and smoothness
-
-To understand whether a statistic behaves predictably during collapse, measure whether $T_t$ is approximately monotone in $t$.
-Possible diagnostics:
-- Spearman correlation between $t$ and $T_t$,
-- number of sign changes in first differences,
-- total variation
-$$
-\mathrm{TV}(T_\bullet)=\sum_{t=1}^{T} |T_t - T_{t-1}|.
-$$
-
-This helps distinguish stable early-warning signals from noisy endpoint-only detectors.
+### Detection-time analysis
+
+`compute_detection_times.py` and `detection_time.py` compute when each metric 
+detects a controlled collapse event under a specified thresholding or comparison 
+rule.
+
+### Persistent-homology workflow
+
+`ph_workflow.py` contains persistent-homology workflow modes, including full 
+Vietoris--Rips, landmark, skip, fixed-support, k-nearest-neighbor, and 
+event-driven variants.
+
+This file is central to experiments comparing scalable persistent-homology 
+approximations.
+
+### Paper artifacts
+
+The paper-facing artifact scripts generate curated tables and figures from 
+measured outputs.
+
+Current canonical artifact scripts include:
+
+```text
+make_canonical_detection_artifacts.py
+make_canonical_fidelity_comparison.py
+generate_trajectory_panels.py
+make_figure2_trajectories.py
+```
+
+Figure-generation scripts may eventually move under `scripts/figures/`.
+
+## Experiment plan
+
+The active experiment plan is documented in:
+
+```text
+EXPERIMENTS.md
+```
+
+The benchmark is organized around several experiment families:
+
+1. Stability calibration.
+2. Schedule calibration.
+3. Controlled benchmark runs.
+4. Topology-specific experiments.
+5. Persistent-homology workflow comparisons.
+
+The main benchmark questions are:
+
+* Which metric families detect collapse earliest?
+* Which metrics are robust to noise?
+* Which metrics are specific to particular collapse mechanisms?
+* Which persistent-homology approximations preserve enough signal to be useful at scale?
+* Which workflows are feasible for high-dimensional, high-cardinality point clouds?
+
+## Metric families
+
+The benchmark compares several broad metric families.
+
+### Geometric metrics
+
+These measure changes in distances, local structure, cluster separation, 
+covariance geometry, or intrinsic dimension.
+
+### Spectral metrics
+
+These measure changes in covariance spectra, anisotropy, effective rank, 
+or singular-value structure.
+
+### Topological metrics
+
+These measure changes in persistent-homology summaries, including Betti curves, 
+persistence diagrams, and derived statistics.
+
+### Workflow diagnostics
+
+For persistent-homology workflows, the benchmark may also track approximation 
+fidelity, support stability, edge precision, and event-trigger behavior.
+
+
+## Installation
+
+Create and activate a virtual environment:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+```
+
+Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+If the repository is later converted into an installable package, 
+the preferred development install will be:
+
+```bash
+pip install -e .
+```
+
+## Development conventions
+
+The preferred docstring style is reStructuredText:
+
+```python
+def example_metric(x):
+    """Compute an example collapse metric.
+
+    :param x: Point cloud with shape ``(n_points, ambient_dim)``.
+    :return: Scalar metric value.
+    """
+```
+
+Explicit typing should be used sparingly. 
+Type annotations are appropriate for dataclass fields, unclear interfaces, 
+and places where they improve maintainability. 
+Ordinary internal functions should prefer clear names and reStructuredText 
+docstrings.
+
+
+## Future structure
+
+The repository should be reorganized:
+
+```text
+evolve_manifold/
+  geometry.py
+  trajectory.py
+  checkpoint.py
+  metrics.py
+  ph_workflow.py
+  mechanisms/
+  io/
+  analysis/
+
+scripts/
+  generate_checkpoints.py
+  measure_checkpoints.py
+  summarize_results.py
+  figures/
+
+tests/
+figures/
+tables/
+```
+
+For now, the highest priority is keeping the canonical workflow stable before 
+doing a large package migration.
+
+## Citation and reproducibility
+
+This repository is intended to support reproducible benchmark experiments. 
+When using results from this repository, record:
+
+* repository URL;
+* branch name;
+* commit hash;
+* experiment tranche;
+* checkpoint-generation configuration;
+* metric-measurement configuration;
+* persistent-homology workflow mode;
+* output artifact path.
+
+A formal citation will be added once the associated benchmark paper and stable 
+artifact release are available.
 
 
 

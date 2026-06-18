@@ -1,0 +1,14 @@
+{
+  "name": "access_template",
+  "description": "Template path block for ACCESS-style runs. Set EVOLVE_COLLAPSE_ROOT to your project or scratch allocation before running.",
+  "paths": {
+    "base_root_env": "EVOLVE_COLLAPSE_ROOT",
+    "base_root_fallback_env": "SCRATCH",
+    "base_root_default": "/scratch/$USER/evolve_collapse",
+    "checkpoint_root_subdir": "evolve_checkpoints",
+    "metric_root_subdir": "metric_outputs",
+    "summary_root_subdir": "metric_summaries",
+    "asset_root_subdir": "summary_assets",
+    "cluster_label_root_subdir": "cluster_labels"
+  }
+}

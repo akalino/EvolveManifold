@@ -20,6 +20,7 @@ thing.
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 from dataclasses import asdict
@@ -55,128 +56,89 @@ from mechanisms.topological_mechanisms import (
 from trajectory import dynamics
 
 
-# Default to the stable mount point we just created. You can override this
-# without editing the script:
-#   EVOLVE_COLLAPSE_ROOT=/some/other/path python run_parquet_manifest_safe.py
-LOCAL_ROOT = os.path.expanduser("~/evolve_local/evolve_collapse")
-
-EXTERNAL_ROOT = os.environ.get("EVOLVE_ROOT", LOCAL_ROOT)
-
-CHECKPOINT_ROOT = os.path.join(EXTERNAL_ROOT, "evolve_checkpoints")
-METRIC_ROOT = os.path.join(EXTERNAL_ROOT, "old/metric_outputs")
-SUMMARY_ROOT = os.path.join(EXTERNAL_ROOT, "old/metric_summaries")
-ASSET_ROOT = os.path.join(EXTERNAL_ROOT, "summary_assets")
-CLUSTER_LABEL_ROOT = os.path.join(EXTERNAL_ROOT, "old/cluster_labels")
-
-# Append-friendly run index. This is not the source of truth for a run;
-# the per-run manifest is. This file is just a convenient catalog.
-GLOBAL_RUN_INDEX = os.path.join(CHECKPOINT_ROOT, "run_index.jsonl")
-
-PAPER_FOCUSED_GRID = {
-    "geometries": [
-        "clustered_gaussian",
-        "torus",
-        "isotropic",
-        "spiked_gaussian"
-    ],
-    "mechanisms": [
-        "projection",
-        "linear_to_kplane",
-        "radial_collapse",
-        "cluster_tightening",
-        "cluster_merging",
-        "hole_fill"
-    ],
-    "schedules": [
-        "linear"
-    ],
-    "severities": [
-        "moderate",
-        "strong"
-    ],
-    "mover_fracs": [
-        1.0
-    ],
-    "noises": [
-        0.0,
-    ],
-    "n_values": [
-        1000,
-    ],
-    "d_values": [
-        50
-    ],
-    "seeds": [
-        5,
-        17,
-        26,
-        31,
-        37,
-        51,
-        123,
-        821,
-        1111,
-        1823
-    ],
-    "num_steps": 50,
-    "checkpoint_every": 2,
-}
+DEFAULT_CONFIG_PATH = "configs/tranches/primary_d50.json"
 
 
-PRIMARY_D50_GRID = {
-    "geometries": [
-        "clustered_gaussian",
-        "torus",
-        "isotropic",
-        "spiked_gaussian",
-    ],
-    "mechanisms": [
-        "projection",
-        "linear_to_kplane",
-        "radial_collapse",
-        "cluster_tightening",
-        "cluster_merging",
-        "hole_fill",
-    ],
-    "schedules": [
-        "linear",
-        "exponential",
-        "sigmoid",
-    ],
-    "severities": [
-        "weak",
-        "moderate",
-        "strong",
-    ],
-    "mover_fracs": [
-        0.25,
-        0.5,
-        1.0,
-    ],
-    "noises": [
-        0.0,
-    ],
-    "n_values": [
-        1000,
-    ],
-    "d_values": [
-        50,
-    ],
-    "seeds": [
-        5,
-        17,
-        26,
-        31,
-        37,
-        51,
-        123,
-        821,
-        1111,
-        1823,
-    ],
-    "num_steps": 50,
-    "checkpoint_every": 2,
-}
+def expand_user_vars(value: str) -> str:
+    """Expand environment variables and user markers in a path string.
+
+    :param value: Path-like string.
+    :return: Expanded path string.
+    """
+    return os.path.abspath(os.path.expandvars(os.path.expanduser(value)))
+
+
+def load_config(path: str | Path) -> Dict[str, Any]:
+    """Load a JSON tranche configuration.
+
+    :param path: Configuration file path.
+    :return: Parsed configuration dictionary.
+    """
+    path = Path(path)
+    with open(path, "r") as f:
+        return json.load(f)
+
+
+def resolve_base_root(paths: Dict[str, Any]) -> str:
+    """Resolve the experiment base root from environment-aware config.
+
+    :param paths: ``paths`` block from a tranche configuration.
+    :return: Absolute base root path.
+    """
+    env_name = paths.get("base_root_env", "EVOLVE_COLLAPSE_ROOT")
+    fallback_env_name = paths.get("base_root_fallback_env", "EVOLVE_ROOT")
+
+    base_root = (
+        os.environ.get(env_name)
+        or os.environ.get(fallback_env_name)
+        or paths.get("base_root_default")
+        or "~/evolve_local/evolve_collapse"
+    )
+    return expand_user_vars(base_root)
+
+
+def resolve_path_config(config: Dict[str, Any]) -> Dict[str, str]:
+    """Resolve output paths from a tranche configuration.
+
+    :param config: Tranche configuration dictionary.
+    :return: Dictionary of absolute paths used by the runner.
+    """
+    paths = config.get("paths", {})
+    base_root = resolve_base_root(paths)
+
+    def subdir_path(key: str, default_subdir: str) -> str:
+        explicit = paths.get(key)
+        if explicit:
+            return expand_user_vars(explicit)
+        return os.path.join(base_root, paths.get(f"{key}_subdir", default_subdir))
+
+    checkpoint_root = subdir_path("checkpoint_root", "evolve_checkpoints")
+
+    return {
+        "base_root": base_root,
+        "checkpoint_root": checkpoint_root,
+        "metric_root": subdir_path("metric_root", "old/metric_outputs"),
+        "summary_root": subdir_path("summary_root", "old/metric_summaries"),
+        "asset_root": subdir_path("asset_root", "summary_assets"),
+        "cluster_label_root": subdir_path("cluster_label_root", "old/cluster_labels"),
+        "global_run_index": os.path.join(checkpoint_root, "run_index.jsonl"),
+    }
+
+
+def default_checkpoint_root() -> str:
+    """Return the default checkpoint root used when no config is supplied.
+
+    :return: Absolute checkpoint root path.
+    """
+    config = {
+        "paths": {
+            "base_root_env": "EVOLVE_COLLAPSE_ROOT",
+            "base_root_fallback_env": "EVOLVE_ROOT",
+            "base_root_default": "~/evolve_local/evolve_collapse",
+        }
+    }
+    return resolve_path_config(config)["checkpoint_root"]
+
 
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -319,7 +281,7 @@ def build_experiments(
     grid: Optional[Dict[str, Any]],
 ):
     if grid is None:
-        grid = PAPER_FOCUSED_GRID
+        raise ValueError("No generation grid supplied. Pass --config with a generation_grid block.")
 
     exps = []
     for geom, mech, sched, sev, mp, noise in product(
@@ -331,6 +293,12 @@ def build_experiments(
         grid["noises"],
     ):
         if not is_valid_combo(geom, mech):
+            continue
+        valid_pairs = grid.get("valid_pairs")
+        if valid_pairs and not any(
+            geom == pair.get("geometry") and mech == pair.get("mechanism")
+            for pair in valid_pairs
+        ):
             continue
         exps.append(
             TrajectoryExperiment(
@@ -499,7 +467,7 @@ def build_step(exp: TrajectoryExperiment, x0=None):
 
 
 def append_run_index(manifest: Dict[str, Any]) -> None:
-    checkpoint_root = manifest.get("checkpoint_root", CHECKPOINT_ROOT)
+    checkpoint_root = manifest.get("checkpoint_root", default_checkpoint_root())
     index_path = os.path.join(checkpoint_root, "run_index.jsonl")
     os.makedirs(os.path.dirname(index_path), exist_ok=True)
     line = json.dumps({
@@ -692,7 +660,9 @@ def require_safe_checkpoint_root(path: str | os.PathLike[str]) -> None:
             f"{resolved}. Set EVOLVE_ROOT or EVOLVE_COLLAPSE_ROOT intentionally."
         )
 
-def run_experiment(exp: TrajectoryExperiment, root_dir: str = CHECKPOINT_ROOT, label_root: Optional[str] = None) -> None:
+def run_experiment(exp: TrajectoryExperiment, root_dir: Optional[str] = None, label_root: Optional[str] = None) -> None:
+    if root_dir is None:
+        root_dir = default_checkpoint_root()
     if label_root is None:
         label_root = os.path.join(os.path.dirname(root_dir), "old/cluster_labels")
 
@@ -789,9 +759,11 @@ def run_all(
     checkpoint_every: int,
     seed: int,
     k: int = 8,
-    root_dir: str = CHECKPOINT_ROOT,
+    root_dir: Optional[str] = None,
     grid: Optional[Dict[str, Any]] = None,
 ):
+    if root_dir is None:
+        root_dir = default_checkpoint_root()
     require_safe_checkpoint_root(root_dir)
 
     exps = build_experiments(
@@ -816,9 +788,41 @@ def run_all(
 
 
 def main():
-    grid = PRIMARY_D50_GRID
-    require_safe_checkpoint_root(CHECKPOINT_ROOT)
-    print(f"Writing checkpoints under: {CHECKPOINT_ROOT}")
+    """Run checkpoint generation from a JSON tranche configuration.
+
+    :return: None.
+    """
+    parser = argparse.ArgumentParser(description="Generate parquet checkpoint trajectories from a tranche config.")
+    parser.add_argument(
+        "--config",
+        default=DEFAULT_CONFIG_PATH,
+        help="Path to a JSON tranche config containing a generation_grid block.",
+    )
+    parser.add_argument(
+        "--root-dir",
+        default=None,
+        help="Override checkpoint root from config/environment.",
+    )
+    parser.add_argument(
+        "--label-root",
+        default=None,
+        help="Override cluster-label output root from config/environment.",
+    )
+    args = parser.parse_args()
+
+    config = load_config(args.config)
+    paths = resolve_path_config(config)
+    grid = config.get("generation_grid")
+    if grid is None:
+        raise ValueError(f"Config {args.config!r} does not contain a generation_grid block.")
+
+    checkpoint_root = args.root_dir or paths["checkpoint_root"]
+    label_root = args.label_root or paths["cluster_label_root"]
+
+    require_safe_checkpoint_root(checkpoint_root)
+    print(f"Loaded tranche config: {args.config}")
+    print(f"Writing checkpoints under: {checkpoint_root}")
+    print(f"Writing cluster labels under: {label_root}")
 
     for num_p in grid["n_values"]:
         for di in grid["d_values"]:
@@ -831,7 +835,7 @@ def main():
                     checkpoint_every=grid["checkpoint_every"],
                     seed=seed,
                     k=proj_k,
-                    root_dir=CHECKPOINT_ROOT,
+                    root_dir=checkpoint_root,
                     grid=grid,
                 )
 
