@@ -1,0 +1,91 @@
+{
+  "name": "canonical_mapper_probe",
+  "description": "Small Mapper probe over canonical checkpoint subset.",
+
+  "paths": {
+    "base_root_env": "EVOLVE_COLLAPSE_ROOT",
+    "base_root_fallback_env": "EVOLVE_ROOT",
+    "base_root_default": "~/evolve_local/evolve_collapse",
+    "checkpoint_root_subdir": "evolve_checkpoints",
+    "mapper_output_subdir": "mapper_outputs/canonical_mapper_probe"
+  },
+
+  "visualization": {
+    "runs_root": "mapper_outputs/canonical_mapper_probe/runs",
+    "out_name": "mapper_evolution.gif",
+    "fps": 2,
+    "dpi": 140,
+    "figsize": [6.0, 5.0],
+    "node_size_scale": 25.0
+  },
+
+  "checkpoint_selection": {
+    "checkpoint_globs": [
+      "**/*.npy",
+      "**/*.npz",
+      "**/*.parquet"
+    ],
+    "max_checkpoints_per_selector": 30,
+    "explicit_checkpoint_paths": []
+  },
+
+  "measurement_filter": {
+    "any_of": [
+      {
+        "run_id": "spiked_gaussian__linear_to_kplane__seed_5",
+        "geometry": "spiked_gaussian",
+        "mechanism": "linear_to_kplane",
+        "seed": 5
+      },
+      {
+        "run_id": "isotropic__radial_collapse__seed_17",
+        "geometry": "isotropic",
+        "mechanism": "radial_collapse",
+        "seed": 17
+      },
+      {
+        "run_id": "clustered_gaussian__cluster_tightening__seed_26",
+        "geometry": "clustered_gaussian",
+        "mechanism": "cluster_tightening",
+        "seed": 26
+      },
+      {
+        "run_id": "clustered_gaussian__cluster_merging__seed_31",
+        "geometry": "clustered_gaussian",
+        "mechanism": "cluster_merging",
+        "seed": 31
+      },
+      {
+        "run_id": "torus__hole_fill__seed_37",
+        "geometry": "torus",
+        "mechanism": "hole_fill",
+        "seed": 37
+      }
+    ],
+
+    "n": [1000],
+    "d": [50],
+    "schedule": ["linear"],
+    "severity": ["moderate"],
+    "mover_frac": [1.0],
+    "noise": [0.0]
+  },
+
+  "mapper": {
+    "lens": "fixed_pc2",
+    "standardize": true,
+
+    "cover": {
+      "n_intervals": 20,
+      "overlap_frac": 0.5
+    },
+
+    "clusterer": {
+      "name": "dbscan",
+      "eps": 0.15,
+      "min_samples": 2
+    },
+
+    "save_graphs": true
+  }
+}

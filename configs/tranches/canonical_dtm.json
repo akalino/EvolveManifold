@@ -1,0 +1,137 @@
+{
+  "name": "canonical",
+  "description": "Small full-VR audit/calibration panel.",
+  "paths": {
+    "base_root_env": "EVOLVE_COLLAPSE_ROOT",
+    "base_root_fallback_env": "EVOLVE_ROOT",
+    "base_root_default": "~/evolve_local/evolve_collapse",
+    "checkpoint_root_subdir": "evolve_checkpoints",
+    "metric_root_subdir": "old/metric_outputs",
+    "summary_root_subdir": "old/metric_summaries",
+    "asset_root_subdir": "summary_assets",
+    "cluster_label_root_subdir": "old/cluster_labels"
+  },
+  "generation_grid": {
+    "valid_pairs": [
+      {
+        "geometry": "spiked_gaussian",
+        "mechanism": "linear_to_kplane"
+      },
+      {
+        "geometry": "isotropic",
+        "mechanism": "radial_collapse"
+      },
+      {
+        "geometry": "clustered_gaussian",
+        "mechanism": "cluster_tightening"
+      },
+      {
+        "geometry": "clustered_gaussian",
+        "mechanism": "cluster_merging"
+      },
+      {
+        "geometry": "torus",
+        "mechanism": "hole_fill"
+      }
+    ],
+    "geometries": [
+      "clustered_gaussian",
+      "torus",
+      "isotropic",
+      "spiked_gaussian"
+    ],
+    "mechanisms": [
+      "linear_to_kplane",
+      "radial_collapse",
+      "cluster_tightening",
+      "cluster_merging",
+      "hole_fill"
+    ],
+    "schedules": [
+      "linear"
+    ],
+    "severities": [
+      "moderate"
+    ],
+    "mover_fracs": [
+      1.0
+    ],
+    "noises": [
+      0.0
+    ],
+    "n_values": [
+      1000
+    ],
+    "d_values": [
+      50
+    ],
+    "seeds": [
+      5,
+      17,
+      26,
+      31,
+      37,
+      51,
+      123,
+      821,
+      1111,
+      1823
+    ],
+    "num_steps": 50,
+    "checkpoint_every": 2
+  },
+  "measurement_filter": {
+    "any_of": [
+      {
+        "geometry": "spiked_gaussian",
+        "mechanism": "linear_to_kplane"
+      },
+      {
+        "geometry": "isotropic",
+        "mechanism": "radial_collapse"
+      },
+      {
+        "geometry": "clustered_gaussian",
+        "mechanism": "cluster_tightening"
+      },
+      {
+        "geometry": "clustered_gaussian",
+        "mechanism": "cluster_merging"
+      },
+      {
+        "geometry": "torus",
+        "mechanism": "hole_fill"
+      }
+    ],
+    "n": [
+      1000
+    ],
+    "d": [
+      50
+    ],
+    "schedule": [
+      "linear"
+    ],
+    "severity": [
+      "moderate"
+    ],
+    "mover_frac": [
+      1.0
+    ],
+    "noise": [
+      0.0
+    ],
+    "seed": [
+      5,
+      17,
+      26,
+      31,
+      37,
+      51,
+      123,
+      821,
+      1111,
+      1823
+    ]
+  }
+}

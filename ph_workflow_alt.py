@@ -9,6 +9,93 @@ from scipy.spatial.distance import pdist, squareform
 from complex_persistence import compute_vr_diagrams
 
 
+
+def _empty_diagram():
+    """
+    Return an empty persistence diagram with the standard ``(0, 2)`` shape.
+    """
+    return np.empty((0, 2), dtype=float)
+
+
+def _as_diagram_array(_dgm, _dim):
+    """
+    Convert one diagram-like object into a ``(n_bars, 2)`` NumPy array.
+
+    :param _dgm: Diagram-like object.
+    :param _dim: Homology dimension, used only for error messages.
+    :return: Diagram array with two columns.
+    """
+    if _dgm is None:
+        return _empty_diagram()
+
+    arr = np.asarray(_dgm, dtype=float)
+
+    if arr.size == 0:
+        return _empty_diagram()
+
+    if arr.ndim != 2 or arr.shape[1] != 2:
+        raise ValueError(
+            "Persistence diagram for dimension {} must have shape (n, 2); got {}".format(
+                _dim,
+                arr.shape,
+            )
+        )
+
+    return arr
+
+
+def _normalize_diagrams(_raw_dgms, _max_dim):
+    """
+    Normalize PH backend outputs to the workflow contract.
+
+    The public contract for this workflow is always:
+
+    ``[H0_array, H1_array, ..., Hmax_array]``
+
+    where each array has shape ``(n_bars, 2)``.  Some backends in this repo return
+    a ``dict[int, np.ndarray]`` instead, so this helper converts dictionaries and
+    validates list/tuple outputs.  It intentionally raises on ambiguous outputs
+    rather than hiding a backend contract mismatch.
+
+    :param _raw_dgms: Raw backend diagram output.
+    :param _max_dim: Maximum homology dimension.
+    :return: List of diagram arrays.
+    """
+    max_dim = int(_max_dim)
+
+    if isinstance(_raw_dgms, dict):
+        return [
+            _as_diagram_array(_raw_dgms.get(dim, _empty_diagram()), dim)
+            for dim in range(max_dim + 1)
+        ]
+
+    # Be permissive for a common wrapper pattern like ``(dgms, metadata)`` or
+    # ``(metadata, dgms)``, but only when one item clearly looks like diagrams.
+    if isinstance(_raw_dgms, tuple) and len(_raw_dgms) == 2:
+        first, second = _raw_dgms
+        if isinstance(first, (dict, list)):
+            return _normalize_diagrams(first, max_dim)
+        if isinstance(second, (dict, list)):
+            return _normalize_diagrams(second, max_dim)
+
+    if isinstance(_raw_dgms, (list, tuple)):
+        if len(_raw_dgms) < max_dim + 1:
+            raise ValueError(
+                "Expected at least {} diagram arrays, got {}".format(
+                    max_dim + 1,
+                    len(_raw_dgms),
+                )
+            )
+        return [
+            _as_diagram_array(_raw_dgms[dim], dim)
+            for dim in range(max_dim + 1)
+        ]
+
+    raise TypeError(
+        "Unsupported persistence-diagram return type: {}".format(type(_raw_dgms).__name__)
+    )
+
+
 def compute_max_edge(_x, _sz_cut):
     """
     _x: Point cloud.
@@ -492,7 +579,7 @@ def _refresh_landmark_support(_x_landmark, _k, _max_edge_length=None):
     return edges, d_mat, edge_filt
 
 
-class PHWorkflow:
+class _VRPHWorkflow:
     """
     Handles the complex / PH logic separately from metric computation.
 
@@ -663,10 +750,11 @@ class PHWorkflow:
         return _x
 
     def _compute_full_vr(self, _x_use):
-        return compute_vr_diagrams(_x_use,
-                                   _max_dim=self.max_dim,
-                                   _max_edge_length=self.max_edge_len,
-                                   _sparse=self.sparse)
+        raw_dgms = compute_vr_diagrams(_x_use,
+                                       _max_dim=self.max_dim,
+                                       _max_edge_length=self.max_edge_len,
+                                       _sparse=self.sparse)
+        return _normalize_diagrams(raw_dgms, self.max_dim)
 
     def _compute_fixed_support(self, _x_use):
         if self.support_edges is None:
@@ -981,6 +1069,829 @@ class PHWorkflow:
             dgms = self._compute_online_landmark_dynamic_support(_x, x_use, _epoch)
         else:
             raise ValueError("Unknown mode")
+
+        self.prev_dgms = dgms
+        self.prev_epoch = _epoch
+        self.prev_x_use = x_use.copy()
+        self.prev_x_full = _x.copy()
+        return dgms
+
+
+# -----------------------------------------------------------------------------
+# DTM-aware alternate workflow layer.
+# -----------------------------------------------------------------------------
+# This section intentionally leaves the original VR workflow above intact.  The
+# public class name PHWorkflow is reintroduced below as a subclass that delegates
+# all VR modes to _VRPHWorkflow and handles the new DTM modes locally.
+
+from scipy.spatial.distance import cdist
+
+
+_DTM_MODE_ALIASES = {
+    "full_vr": "full_dtm",
+    "landmark_vr": "landmark_dtm",
+    "skip_vr": "skip_dtm",
+    "fixed_support_vr": "fixed_support_dtm",
+    "fixed_knn_vr": "fixed_knn_dtm",
+    "event_driven": "event_driven_dtm",
+    "online_landmark_event": "online_landmark_dtm_event",
+    "online_landmark_dynamic_support": "online_landmark_dtm_dynamic_support",
+}
+
+_DTM_MODES = set(_DTM_MODE_ALIASES.values()) | {
+    "full_dtm",
+    "landmark_dtm",
+    "skip_dtm",
+    "fixed_support_dtm",
+    "fixed_knn_dtm",
+    "event_driven_dtm",
+    "online_landmark_dtm_event",
+    "online_landmark_dtm_dynamic_support",
+    "online_landmark_dynamic_support_dtm",
+}
+
+
+def _safe_knn_k(_k, _n):
+    """
+    Return a k value that is valid for a point cloud with _n points.
+
+    :param _k: Requested neighbor count.
+    :param _n: Number of points.
+    :return: Valid neighbor count.
+    """
+    if _n <= 1:
+        raise ValueError("Need at least two points for nearest-neighbor support")
+    return int(max(1, min(int(_k), _n - 1)))
+
+
+def _compute_dtm_values(_x_ref, _x_query, _k=16, _exclude_zero=True):
+    """
+    Compute empirical distance-to-measure values for query points.
+
+    This uses the square-root of the mean squared distance to the k nearest
+    reference points.  When a query point is present in the reference set, the
+    leading zero self-distance is skipped when possible.
+
+    :param _x_ref: Reference point cloud of shape (n_ref, d).
+    :param _x_query: Query point cloud of shape (n_query, d).
+    :param _k: Number of neighbors used for the empirical DTM estimate.
+    :param _exclude_zero: Whether to skip a leading zero self-distance.
+    :return: DTM values of shape (n_query,).
+    """
+    x_ref = np.asarray(_x_ref, dtype=float)
+    x_query = np.asarray(_x_query, dtype=float)
+
+    if x_ref.ndim != 2 or x_query.ndim != 2:
+        raise ValueError("DTM inputs must be two-dimensional point-cloud arrays")
+    if x_ref.shape[1] != x_query.shape[1]:
+        raise ValueError("Reference and query point clouds must share dimension")
+    if x_ref.shape[0] == 0 or x_query.shape[0] == 0:
+        raise ValueError("DTM inputs must be nonempty")
+
+    d2 = cdist(x_query, x_ref, metric="sqeuclidean")
+    d2.sort(axis=1)
+
+    k = int(max(1, _k))
+    vals = np.empty(x_query.shape[0], dtype=float)
+
+    for row_idx, row in enumerate(d2):
+        start = 0
+        if _exclude_zero and row.shape[0] > 1 and row[0] <= 1e-24:
+            start = 1
+        stop = min(row.shape[0], start + k)
+        if stop <= start:
+            start = 0
+            stop = min(row.shape[0], k)
+        vals[row_idx] = np.sqrt(np.mean(row[start:stop]))
+
+    return vals
+
+
+def _dtm_vertex_stats(_dtm_vals):
+    """
+    Summarize DTM vertex values.
+
+    :param _dtm_vals: DTM values.
+    :return: Dictionary of scalar summaries.
+    """
+    vals = np.asarray(_dtm_vals, dtype=float)
+    if vals.size == 0:
+        return {
+            "dtm_mean": 0.0,
+            "dtm_std": 0.0,
+            "dtm_median": 0.0,
+            "dtm_q90": 0.0,
+            "dtm_q95": 0.0,
+            "dtm_max": 0.0,
+        }
+    q = np.quantile(vals, [0.5, 0.9, 0.95, 1.0])
+    return {
+        "dtm_mean": float(np.mean(vals)),
+        "dtm_std": float(np.std(vals)),
+        "dtm_median": float(q[0]),
+        "dtm_q90": float(q[1]),
+        "dtm_q95": float(q[2]),
+        "dtm_max": float(q[3]),
+    }
+
+
+def _mean_relative_value_change(_new, _old):
+    """
+    Mean relative drift between two same-shaped value arrays.
+
+    :param _new: New values.
+    :param _old: Old values.
+    :return: Mean relative change.
+    """
+    new = np.asarray(_new, dtype=float)
+    old = np.asarray(_old, dtype=float)
+    if new.shape != old.shape:
+        raise ValueError("Value arrays must have the same shape")
+    denom = np.abs(old) + 1e-12
+    return float(np.mean(np.abs(new - old) / denom))
+
+
+def _rank_value_drift(_new, _old):
+    """
+    Normalized rank drift between two same-shaped value arrays.
+
+    :param _new: New values.
+    :param _old: Old values.
+    :return: Value in [0, 1] up to numerical error.
+    """
+    new = np.asarray(_new, dtype=float).reshape(-1)
+    old = np.asarray(_old, dtype=float).reshape(-1)
+    if new.shape != old.shape:
+        raise ValueError("Value arrays must have the same shape")
+    n = new.shape[0]
+    if n <= 1:
+        return 0.0
+    old_rank = np.empty(n, dtype=float)
+    new_rank = np.empty(n, dtype=float)
+    old_rank[np.argsort(old)] = np.arange(n, dtype=float)
+    new_rank[np.argsort(new)] = np.arange(n, dtype=float)
+    return float(np.mean(np.abs(new_rank - old_rank)) / float(n - 1))
+
+
+def _dtm_edge_filtration_from_d_mat(_edges, _d_mat, _dtm_vals,
+                                    _max_edge_len=None,
+                                    _rule="max",
+                                    _dtm_weight=1.0,
+                                    _edge_weight=1.0):
+    """
+    Convert support edges into DTM-aware filtration values.
+
+    :param _edges: Edge list.
+    :param _d_mat: Pairwise distance matrix on the support vertices.
+    :param _dtm_vals: DTM vertex values on the support vertices.
+    :param _max_edge_len: Optional cap on the distance part of the edge value.
+    :param _rule: Combination rule: max, sqrt_sum, additive, or dtm_only.
+    :param _dtm_weight: Weight applied to DTM vertex values.
+    :param _edge_weight: Weight applied to metric edge lengths.
+    :return: Edge-filtration dictionary.
+    """
+    vals = np.asarray(_dtm_vals, dtype=float)
+    filt = {}
+    for i, j in _edges:
+        dist = float(_d_mat[i, j])
+        if _max_edge_len is not None:
+            dist = min(dist, float(_max_edge_len))
+        dist = float(_edge_weight) * dist
+        vi = float(_dtm_weight) * float(vals[i])
+        vj = float(_dtm_weight) * float(vals[j])
+
+        if _rule == "max":
+            val = max(dist, vi, vj)
+        elif _rule == "sqrt_sum":
+            val = float(np.sqrt(dist * dist + vi * vi + vj * vj))
+        elif _rule == "additive":
+            val = dist + 0.5 * (vi + vj)
+        elif _rule == "dtm_only":
+            val = max(vi, vj)
+        else:
+            raise ValueError("Unknown DTM edge rule: {}".format(_rule))
+        filt[(i, j)] = float(val)
+    return filt
+
+
+def _build_dtm_clique_tree(_n, _edges, _edge_filtration, _vertex_filtration,
+                           _max_dim):
+    """
+    Build a clique complex with nonzero vertex filtrations.
+
+    :param _n: Number of vertices.
+    :param _edges: Edge list.
+    :param _edge_filtration: Edge-filtration dictionary.
+    :param _vertex_filtration: Vertex-filtration values.
+    :param _max_dim: Maximum homology dimension.
+    :return: Gudhi SimplexTree.
+    """
+    st = gd.SimplexTree() # pylint: disable=no-member
+    vertex_vals = np.asarray(_vertex_filtration, dtype=float)
+    if vertex_vals.shape[0] != _n:
+        raise ValueError("Vertex filtration length must match number of vertices")
+
+    for i in range(_n):
+        st.insert([i], filtration=float(vertex_vals[i]))
+    for i, j in _edges:
+        edge_val = max(float(_edge_filtration[(i, j)]),
+                       float(vertex_vals[i]),
+                       float(vertex_vals[j]))
+        st.insert([i, j], filtration=edge_val)
+    st.expansion(_max_dim + 1)
+    st.make_filtration_non_decreasing()
+    return st
+
+
+def _update_dtm_tree_filtration(_st, _n, _edge_filtration, _vertex_filtration):
+    """
+    Update vertex and edge filtrations for a DTM-aware SimplexTree.
+
+    :param _st: Gudhi SimplexTree.
+    :param _n: Number of vertices.
+    :param _edge_filtration: Edge-filtration dictionary.
+    :param _vertex_filtration: Vertex-filtration values.
+    """
+    vertex_vals = np.asarray(_vertex_filtration, dtype=float)
+    if vertex_vals.shape[0] != _n:
+        raise ValueError("Vertex filtration length must match number of vertices")
+
+    for i in range(_n):
+        _st.assign_filtration([i], float(vertex_vals[i]))
+    for (i, j), val in _edge_filtration.items():
+        edge_val = max(float(val), float(vertex_vals[i]), float(vertex_vals[j]))
+        _st.assign_filtration([i, j], edge_val)
+    _st.make_filtration_non_decreasing()
+
+
+def _refresh_landmark_dtm_support(_x_landmark, _x_ref, _k, _dtm_k,
+                                  _max_edge_length=None,
+                                  _rule="max",
+                                  _dtm_weight=1.0,
+                                  _edge_weight=1.0):
+    """
+    Refresh a landmark support graph and DTM-aware filtrations.
+
+    :param _x_landmark: Landmark point cloud.
+    :param _x_ref: Reference cloud used to estimate DTM values.
+    :param _k: Neighborhood size for support edges.
+    :param _dtm_k: Number of neighbors used for DTM values.
+    :param _max_edge_length: Optional cap on the distance part of edge values.
+    :param _rule: DTM edge-combination rule.
+    :param _dtm_weight: Weight applied to DTM values.
+    :param _edge_weight: Weight applied to metric edge lengths.
+    :return: Edges, distance matrix, edge filtration, vertex filtration.
+    """
+    k_use = _safe_knn_k(_k, _x_landmark.shape[0])
+    edges, d_mat = _knn_edges(_x_landmark, k_use)
+    vertex_filt = _compute_dtm_values(_x_ref, _x_landmark, _dtm_k)
+    edge_filt = _dtm_edge_filtration_from_d_mat(
+        edges,
+        d_mat,
+        vertex_filt,
+        _max_edge_len=_max_edge_length,
+        _rule=_rule,
+        _dtm_weight=_dtm_weight,
+        _edge_weight=_edge_weight,
+    )
+    return edges, d_mat, edge_filt, vertex_filt
+
+
+class PHWorkflow(_VRPHWorkflow):
+    """
+    Drop-in PH workflow with DTM-aware alternatives to the VR speedup modes.
+
+    Existing VR modes are delegated unchanged to the original workflow.  DTM can
+    be requested either by using an explicit DTM mode, such as
+    ``online_landmark_dtm_dynamic_support``, or by passing ``_filtration="dtm"``
+    with an existing VR mode name.
+
+    DTM modes
+    ---------
+    full_dtm:
+        Recompute a DTM-weighted clique filtration on the current cloud.
+
+    landmark_dtm:
+        Use fixed landmarks but estimate landmark DTM values against the full
+        current cloud by default.
+
+    skip_dtm:
+        Recompute DTM PH every ``_skip_every`` epochs and reuse diagrams between
+        recomputations.
+
+    fixed_support_dtm / fixed_knn_dtm:
+        Build a radius or kNN support once, then update DTM vertex values and
+        DTM-weighted edge filtrations on that fixed support.
+
+    event_driven_dtm:
+        Recompute full DTM PH only when the cloud changes enough.
+
+    online_landmark_dtm_event:
+        Fixed landmarks and fixed kNN support; update DTM-aware filtrations each
+        epoch and recompute PH only when edge or DTM drift is large enough.
+
+    online_landmark_dtm_dynamic_support:
+        Fixed landmarks with dynamic kNN support refresh driven by metric,
+        support, coverage, and DTM-value drift.
+    """
+
+    def __init__(self,
+                 _mode="full_vr",
+                 _max_dim=1,
+                 _sparse=0.2,
+                 _too_big=False,
+                 _n_landmarks=250,
+                 _seed=17,
+                 _skip_every=2,
+                 _knn_k=12,
+                 _event_thresh=0.02,
+                 _event_max_skip=5,
+                 _force_every=10,
+                 _filtration="vr",
+                 _dtm_k=16,
+                 _dtm_rule="max",
+                 _dtm_weight=1.0,
+                 _dtm_edge_weight=1.0,
+                 _dtm_use_full_cloud=True,
+                 _dtm_event_weights=None):
+        super().__init__(
+            _mode=_mode,
+            _max_dim=_max_dim,
+            _sparse=_sparse,
+            _too_big=_too_big,
+            _n_landmarks=_n_landmarks,
+            _seed=_seed,
+            _skip_every=_skip_every,
+            _knn_k=_knn_k,
+            _event_thresh=_event_thresh,
+            _event_max_skip=_event_max_skip,
+            _force_every=_force_every,
+        )
+        self.filtration = _filtration
+        self.dtm_k = _dtm_k
+        self.dtm_rule = _dtm_rule
+        self.dtm_weight = _dtm_weight
+        self.dtm_edge_weight = _dtm_edge_weight
+        self.dtm_use_full_cloud = _dtm_use_full_cloud
+        self.dtm_event_weights = _dtm_event_weights or {
+            "edge_drift": 1.0,
+            "knn_identity_drift": 1.0,
+            "coverage_drift": 1.0,
+            "dtm_value_drift": 1.0,
+            "dtm_rank_drift": 0.25,
+        }
+        self.vertex_filt_prev = None
+        self.last_dtm_stats = None
+        self.last_dtm_diag = None
+
+    def _dtm_mode(self):
+        if self.mode in _DTM_MODES:
+            if self.mode == "online_landmark_dynamic_support_dtm":
+                return "online_landmark_dtm_dynamic_support"
+            return self.mode
+        if self.filtration == "dtm":
+            return _DTM_MODE_ALIASES.get(self.mode, self.mode)
+        return None
+
+    def _is_dtm_active(self):
+        return self._dtm_mode() in _DTM_MODES
+
+    def _dtm_reference_cloud(self, _x_full, _x_use):
+        if self.dtm_use_full_cloud:
+            return _x_full
+        return _x_use
+
+    def _dtm_values_for_epoch(self, _x_full, _x_use):
+        x_ref = self._dtm_reference_cloud(_x_full, _x_use)
+        vals = _compute_dtm_values(x_ref, _x_use, self.dtm_k)
+        self.last_dtm_stats = _dtm_vertex_stats(vals)
+        return vals
+
+    def _dtm_edge_filtration(self, _edges, _d_mat, _vertex_filt):
+        return _dtm_edge_filtration_from_d_mat(
+            _edges,
+            _d_mat,
+            _vertex_filt,
+            _max_edge_len=self.max_edge_len,
+            _rule=self.dtm_rule,
+            _dtm_weight=self.dtm_weight,
+            _edge_weight=self.dtm_edge_weight,
+        )
+
+    def _fit_epoch1(self, _x):
+        if not self._is_dtm_active():
+            return super()._fit_epoch1(_x)
+
+        self.max_edge_len = compute_max_edge(_x, self.too_big)
+        mode = self._dtm_mode()
+
+        if mode in [
+                "landmark_dtm",
+                "online_landmark_dtm_event",
+                "online_landmark_dtm_dynamic_support"]:
+            self.landmark_idx = furthest_point_subsample(
+                _x,
+                self.n_landmarks,
+                self.seed,
+            )
+
+        x_use = self._cloud_for_epoch(_x)
+        x_ref = self._dtm_reference_cloud(_x, x_use)
+
+        if mode == "fixed_support_dtm":
+            edges, d_mat = _radius_edges(x_use, self.max_edge_len)
+            vertex_filt = _compute_dtm_values(x_ref, x_use, self.dtm_k)
+            edge_filt = self._dtm_edge_filtration(edges, d_mat, vertex_filt)
+            self.support_edges = edges
+            self.support_n = x_use.shape[0]
+            self.simplex_tree = _build_dtm_clique_tree(
+                self.support_n,
+                self.support_edges,
+                edge_filt,
+                vertex_filt,
+                self.max_dim,
+            )
+            self.edge_filt_prev = edge_filt
+            self.vertex_filt_prev = vertex_filt
+
+        if mode == "fixed_knn_dtm":
+            edges, d_mat = _knn_edges(x_use, _safe_knn_k(self.knn_k, x_use.shape[0]))
+            vertex_filt = _compute_dtm_values(x_ref, x_use, self.dtm_k)
+            edge_filt = self._dtm_edge_filtration(edges, d_mat, vertex_filt)
+            self.support_edges = edges
+            self.support_n = x_use.shape[0]
+            self.simplex_tree = _build_dtm_clique_tree(
+                self.support_n,
+                self.support_edges,
+                edge_filt,
+                vertex_filt,
+                self.max_dim,
+            )
+            self.edge_filt_prev = edge_filt
+            self.vertex_filt_prev = vertex_filt
+
+        if mode == "online_landmark_dtm_event":
+            edges, d_mat = _knn_edges(x_use, _safe_knn_k(self.knn_k, x_use.shape[0]))
+            vertex_filt = _compute_dtm_values(x_ref, x_use, self.dtm_k)
+            edge_filt = self._dtm_edge_filtration(edges, d_mat, vertex_filt)
+            self.support_edges = edges
+            self.support_n = x_use.shape[0]
+            self.simplex_tree = _build_dtm_clique_tree(
+                self.support_n,
+                self.support_edges,
+                edge_filt,
+                vertex_filt,
+                self.max_dim,
+            )
+            self.edge_filt_prev = edge_filt
+            self.vertex_filt_prev = vertex_filt
+
+        if mode == "online_landmark_dtm_dynamic_support":
+            edges, d_mat, edge_filt, vertex_filt = _refresh_landmark_dtm_support(
+                x_use,
+                x_ref,
+                self.knn_k,
+                self.dtm_k,
+                self.max_edge_len,
+                self.dtm_rule,
+                self.dtm_weight,
+                self.dtm_edge_weight,
+            )
+            self.support_edges = edges
+            self.support_edge_age = {e: 0 for e in edges}
+            self.support_n = x_use.shape[0]
+            self.simplex_tree = _build_dtm_clique_tree(
+                self.support_n,
+                self.support_edges,
+                edge_filt,
+                vertex_filt,
+                self.max_dim,
+            )
+            self.edge_filt_prev = edge_filt
+            self.vertex_filt_prev = vertex_filt
+
+        return None
+
+    def _persistence_from_dtm_tree(self):
+        self.simplex_tree.persistence()
+        return [
+            np.array(self.simplex_tree.persistence_intervals_in_dimension(d))
+            for d in range(self.max_dim + 1)
+        ]
+
+    def _compute_full_dtm(self, _x_full, _x_use):
+        edges, d_mat = _radius_edges(_x_use, self.max_edge_len)
+        vertex_filt = self._dtm_values_for_epoch(_x_full, _x_use)
+        edge_filt = self._dtm_edge_filtration(edges, d_mat, vertex_filt)
+        self.simplex_tree = _build_dtm_clique_tree(
+            _x_use.shape[0],
+            edges,
+            edge_filt,
+            vertex_filt,
+            self.max_dim,
+        )
+        self.support_edges = edges
+        self.support_n = _x_use.shape[0]
+        self.edge_filt_prev = edge_filt
+        self.vertex_filt_prev = vertex_filt
+        return self._persistence_from_dtm_tree()
+
+    def _compute_fixed_dtm_support(self, _x_full, _x_use):
+        if self.support_edges is None:
+            raise ValueError("Support edges is None")
+        d_mat = _pairwise_dist(_x_use)
+        vertex_filt = self._dtm_values_for_epoch(_x_full, _x_use)
+        edge_filt = self._dtm_edge_filtration(self.support_edges, d_mat, vertex_filt)
+        _update_dtm_tree_filtration(
+            self.simplex_tree,
+            self.support_n,
+            edge_filt,
+            vertex_filt,
+        )
+        self.edge_filt_prev = edge_filt
+        self.vertex_filt_prev = vertex_filt
+        return self._persistence_from_dtm_tree()
+
+    def _should_recompute_dtm_event(self, _x_full, _x_use, _epoch):
+        if self.prev_dgms is None:
+            return True
+        if self.prev_x_use is None or self.prev_epoch is None:
+            return True
+        if (_epoch - self.prev_epoch) >= self.event_max_skip:
+            return True
+        return _simplex_change_score(_x_use, self.prev_x_use) >= self.event_thresh
+
+    def _dtm_event_score(self, _diag):
+        score = 0.0
+        for key, weight in self.dtm_event_weights.items():
+            score += float(weight) * float(_diag.get(key, 0.0))
+        return float(score)
+
+    def _dtm_event_reason(self, _diag, _epoch):
+        reasons = []
+        score = self._dtm_event_score(_diag)
+        if score >= self.event_thresh:
+            reasons.append("score_thresh")
+        recall = _diag.get("support_edge_recall")
+        if (self.min_support_recall is not None and recall is not None and
+                float(recall) < float(self.min_support_recall)):
+            reasons.append("low_support_recall")
+        if self.prev_epoch is not None and (_epoch - self.prev_epoch) >= self.event_max_skip:
+            reasons.append("max_skip")
+        if self.last_force is not None and (_epoch - self.last_force) >= self.force_every:
+            reasons.append("force_every")
+        return reasons
+
+    def _compute_online_landmark_dtm_event(self, _x_full, _x_use, _epoch):
+        d_mat = _pairwise_dist(_x_use)
+        vertex_filt_new = self._dtm_values_for_epoch(_x_full, _x_use)
+        edge_filt_new = self._dtm_edge_filtration(
+            self.support_edges,
+            d_mat,
+            vertex_filt_new,
+        )
+
+        if self.prev_dgms is None or self.prev_epoch is None:
+            recompute = True
+            event_score = np.inf
+        else:
+            edge_drift = _mean_relative_edge_change(edge_filt_new, self.edge_filt_prev)
+            dtm_drift = _mean_relative_value_change(vertex_filt_new, self.vertex_filt_prev)
+            event_score = edge_drift + dtm_drift
+            max_skip = (_epoch - self.prev_epoch) >= self.event_max_skip
+            force = self.last_force is not None and ((_epoch - self.last_force) >= self.force_every)
+            recompute = event_score >= self.event_thresh or max_skip or force
+
+        self.last_event_score = event_score
+
+        if not recompute:
+            self.last_recomputed = False
+            self.edge_filt_prev = edge_filt_new
+            self.vertex_filt_prev = vertex_filt_new
+            return self.prev_dgms
+
+        _update_dtm_tree_filtration(
+            self.simplex_tree,
+            self.support_n,
+            edge_filt_new,
+            vertex_filt_new,
+        )
+        dgms = self._persistence_from_dtm_tree()
+        self.last_recomputed = True
+        self.last_force = _epoch
+        self.edge_filt_prev = edge_filt_new
+        self.vertex_filt_prev = vertex_filt_new
+        return dgms
+
+    def _build_dtm_simplex_tree_from_support(self, _x_full, _x_landmarks, _edges):
+        d_mat = _pairwise_dist(_x_landmarks)
+        vertex_filt = self._dtm_values_for_epoch(_x_full, _x_landmarks)
+        edge_filt = self._dtm_edge_filtration(_edges, d_mat, vertex_filt)
+        st = _build_dtm_clique_tree(
+            _x_landmarks.shape[0],
+            _edges,
+            edge_filt,
+            vertex_filt,
+            self.max_dim,
+        )
+        return st, d_mat, edge_filt, vertex_filt
+
+    def _compute_online_landmark_dtm_dynamic_support(self, _x_full, _x_use, _epoch):
+        """
+        Event-driven PH on a landmark cloud with dynamic DTM-aware support.
+        """
+        if self.support_edges is None or self.simplex_tree is None:
+            x_ref = self._dtm_reference_cloud(_x_full, _x_use)
+            edges, _, edge_filt, vertex_filt = _refresh_landmark_dtm_support(
+                _x_use,
+                x_ref,
+                self.knn_k,
+                self.dtm_k,
+                self.max_edge_len,
+                self.dtm_rule,
+                self.dtm_weight,
+                self.dtm_edge_weight,
+            )
+            self.support_edges = edges
+            self.support_edge_age = {e: 0 for e in edges}
+            self.support_n = _x_use.shape[0]
+            self.simplex_tree = _build_dtm_clique_tree(
+                self.support_n,
+                self.support_edges,
+                edge_filt,
+                vertex_filt,
+                self.max_dim,
+            )
+            self.edge_filt_prev = edge_filt
+            self.vertex_filt_prev = vertex_filt
+
+        d_mat_curr = _pairwise_dist(_x_use)
+        vertex_filt_new = self._dtm_values_for_epoch(_x_full, _x_use)
+        edge_filt_new = self._dtm_edge_filtration(
+            self.support_edges,
+            d_mat_curr,
+            vertex_filt_new,
+        )
+
+        if self.prev_dgms is None or self.prev_x_use is None or self.prev_epoch is None:
+            _update_dtm_tree_filtration(
+                self.simplex_tree,
+                self.support_n,
+                edge_filt_new,
+                vertex_filt_new,
+            )
+            dgms = self._persistence_from_dtm_tree()
+            self.last_recomputed = True
+            self.last_force = _epoch
+            self.edge_filt_prev = edge_filt_new
+            self.vertex_filt_prev = vertex_filt_new
+            self.last_event_score = np.inf
+            self.prev_x_full = _x_full.copy()
+            return dgms
+
+        edge_drift = _mean_relative_edge_change(edge_filt_new, self.edge_filt_prev)
+        dtm_value_drift = _mean_relative_value_change(vertex_filt_new, self.vertex_filt_prev)
+        dtm_rank_drift = _rank_value_drift(vertex_filt_new, self.vertex_filt_prev)
+
+        knn_prev = _compute_knn_indices(self.prev_x_use, _safe_knn_k(self.knn_k, self.prev_x_use.shape[0]))
+        knn_new = _compute_knn_indices(_x_use, _safe_knn_k(self.knn_k, _x_use.shape[0]))
+
+        cov_prev = _landmark_coverage_stats(self.prev_x_full, self.prev_x_use)
+        cov_new = _landmark_coverage_stats(_x_full, _x_use)
+
+        diag = {
+            "edge_drift": float(edge_drift),
+            "knn_identity_drift": float(_knn_identity_drift(knn_prev, knn_new)),
+            "knn_rank_drift": float(_knn_rank_drift(knn_prev, knn_new)),
+            "coverage_drift": float(abs(cov_new["q95"] - cov_prev["q95"])),
+            "support_edge_recall": float(_support_edge_recall(self.support_edges, _x_use, _safe_knn_k(self.knn_k, _x_use.shape[0]))),
+            "support_edge_precision": float(_support_edge_precision(self.support_edges, _x_use, _safe_knn_k(self.knn_k, _x_use.shape[0]))),
+            "dtm_value_drift": float(dtm_value_drift),
+            "dtm_rank_drift": float(dtm_rank_drift),
+        }
+        self.last_dtm_diag = diag
+        event_score = self._dtm_event_score(diag)
+        self.last_event_score = event_score
+
+        reason_code = self._dtm_event_reason(diag, _epoch)
+        refresh_support = (
+            "score_thresh" in reason_code or
+            "low_support_recall" in reason_code
+        )
+        recompute = bool(reason_code)
+
+        if refresh_support:
+            x_ref = self._dtm_reference_cloud(_x_full, _x_use)
+            new_edges, _, _, _ = _refresh_landmark_dtm_support(
+                _x_use,
+                x_ref,
+                self.knn_k,
+                self.dtm_k,
+                self.max_edge_len,
+                self.dtm_rule,
+                self.dtm_weight,
+                self.dtm_edge_weight,
+            )
+            merged_edges = self._merge_support_edges(self.support_edges, new_edges)
+            pruned_edges = self._prune_support_edges(
+                merged_edges,
+                new_edges,
+                self.support_max_age,
+            )
+            self.support_edges = pruned_edges
+            self.support_n = _x_use.shape[0]
+            self.simplex_tree, d_mat_curr, edge_filt_new, vertex_filt_new = (
+                self._build_dtm_simplex_tree_from_support(
+                    _x_full,
+                    _x_use,
+                    self.support_edges,
+                )
+            )
+
+        if not recompute:
+            self.last_recomputed = False
+            self.edge_filt_prev = edge_filt_new
+            self.vertex_filt_prev = vertex_filt_new
+            return self.prev_dgms
+
+        if refresh_support:
+            dgms = self._persistence_from_dtm_tree()
+        else:
+            _update_dtm_tree_filtration(
+                self.simplex_tree,
+                self.support_n,
+                edge_filt_new,
+                vertex_filt_new,
+            )
+            dgms = self._persistence_from_dtm_tree()
+
+        self.last_recomputed = True
+        self.last_force = _epoch
+        self.edge_filt_prev = edge_filt_new
+        self.vertex_filt_prev = vertex_filt_new
+        return dgms
+
+    def diagrams(self, _x, _epoch):
+        """
+        Return persistence diagrams for a checkpoint.
+
+        VR modes are delegated to the original workflow.  DTM modes use a
+        density-aware clique filtration with DTM vertex values and DTM-weighted
+        edge values.
+        """
+        if not self._is_dtm_active():
+            dgms = super().diagrams(_x, _epoch)
+            dgms = _normalize_diagrams(dgms, self.max_dim)
+            self.prev_dgms = dgms
+            return dgms
+
+        if self.max_edge_len is None:
+            self._fit_epoch1(_x)
+
+        mode = self._dtm_mode()
+        if (mode in [
+                "fixed_support_dtm",
+                "fixed_knn_dtm",
+                "online_landmark_dtm_event",
+                "online_landmark_dtm_dynamic_support"] and
+                self.support_edges is None):
+            self._fit_epoch1(_x)
+
+        x_use = self._cloud_for_epoch(_x)
+
+        if mode == "full_dtm":
+            dgms = self._compute_full_dtm(_x, x_use)
+
+        elif mode == "landmark_dtm":
+            dgms = self._compute_full_dtm(_x, x_use)
+
+        elif mode == "skip_dtm":
+            if self.prev_dgms is not None and (_epoch % self.skip_every != 0):
+                return self.prev_dgms
+            dgms = self._compute_full_dtm(_x, x_use)
+
+        elif mode == "fixed_support_dtm":
+            dgms = self._compute_fixed_dtm_support(_x, x_use)
+
+        elif mode == "fixed_knn_dtm":
+            dgms = self._compute_fixed_dtm_support(_x, x_use)
+
+        elif mode == "event_driven_dtm":
+            if self._should_recompute_dtm_event(_x, x_use, _epoch):
+                self.last_recomputed = True
+                dgms = self._compute_full_dtm(_x, x_use)
+            else:
+                self.last_recomputed = False
+                return self.prev_dgms
+
+        elif mode == "online_landmark_dtm_event":
+            dgms = self._compute_online_landmark_dtm_event(_x, x_use, _epoch)
+
+        elif mode == "online_landmark_dtm_dynamic_support":
+            dgms = self._compute_online_landmark_dtm_dynamic_support(_x, x_use, _epoch)
+
+        else:
+            raise ValueError("Unknown DTM mode: {}".format(mode))
 
         self.prev_dgms = dgms
         self.prev_epoch = _epoch
