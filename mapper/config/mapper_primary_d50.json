@@ -1,0 +1,101 @@
+{
+  "name": "mapper_primary_d50",
+  "description": "Mapper probe over the primary d=50 benchmark tranche.",
+
+  "paths": {
+    "base_root_env": "EVOLVE_COLLAPSE_ROOT",
+    "base_root_fallback_env": "EVOLVE_ROOT",
+    "base_root_default": "~/evolve_local/evolve_collapse",
+    "checkpoint_root_subdir": "evolve_checkpoints",
+    "mapper_output_subdir": "mapper_outputs/primary_d50_mapper"
+  },
+
+  "checkpoint_selection": {
+    "checkpoint_globs": [
+      "**/*.npy",
+      "**/*.npz",
+      "**/*.parquet"
+    ],
+    "max_checkpoints_per_selector": 30,
+    "explicit_checkpoint_paths": [],
+
+    "group_by": [
+      "geometry",
+      "mechanism",
+      "schedule",
+      "severity",
+      "mover_frac",
+      "seed"
+    ]
+  },
+
+  "measurement_filter": {
+    "geometry": [
+      "clustered_gaussian",
+      "spiked_gaussian",
+      "torus",
+      "isotropic"
+    ],
+    "mechanism": [
+      "linear_to_kplane",
+      "radial_collapse",
+      "cluster_tightening",
+      "cluster_merging",
+      "hole_fill"
+    ],
+    "n": [1000],
+    "d": [50],
+    "schedule": [
+      "linear",
+      "sigmoid"
+    ],
+    "severity": [
+      "moderate",
+      "strong"
+    ],
+    "mover_frac": [
+      0.25,
+      1.0
+    ],
+    "noise": [0.0],
+    "seed": [
+      5,
+      17,
+      26,
+      31,
+      37,
+      51,
+      123,
+      821,
+      1111,
+      1823
+    ]
+  },
+
+  "mapper": {
+    "lens": "fixed_pc2",
+    "standardize": true,
+
+    "cover": {
+      "n_intervals": 12,
+      "overlap_frac": 0.45
+    },
+
+    "clusterer": {
+      "name": "dbscan",
+      "eps": 0.25,
+      "min_samples": 2
+    },
+
+    "save_graphs": true
+  },
+
+  "visualization": {
+    "runs_root": "mapper_outputs/primary_d50_mapper/runs",
+    "out_name": "mapper_evolution.gif",
+    "fps": 2,
+    "dpi": 140,
+    "figsize": [6.0, 5.0],
+    "node_size_scale": 25.0
+  }
+}

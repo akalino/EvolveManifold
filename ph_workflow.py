@@ -1,5 +1,5 @@
 """
-Experiments geared toward not having to compute full VR at each checkpoint.
+Experiments geared toward not having to compute full VR or DTM at each checkpoint.
 """
 import numpy as np
 import gudhi as gd

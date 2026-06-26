@@ -1,0 +1,58 @@
+name: ot_calibration_small
+description: "Small GW calibration tranche over landmarks, epsilon, seeds, and normalization."
+
+checkpoint_root: "${EVOLVE_ROOT}/evolve_checkpoints/collapse_ph"
+output_root: "${EVOLVE_ROOT}/gw_outputs/ot_calibration_small"
+
+worker_script: "compute_subsample_gw_trajectory.py"
+
+mode: adjacent
+ot_method:
+  - entropic_gw
+
+landmark_method:
+  - random
+
+n_landmarks:
+  - 64
+  - 128
+  - 256
+
+epsilon:
+  - 1.0
+  - 0.5
+  - 0.1
+
+seed:
+  - 17
+  - 23
+  - 31
+
+normalize:
+  - start_median
+  - none
+  - per_snapshot_median
+
+max_iter: 1000
+tol: 1.0e-6
+
+workers: 20
+blas_threads: 1
+overwrite: false
+
+limit_runs: 8
+
+filters:
+  mechanisms:
+    - radial_collapse
+    - cluster_tightening
+    - cluster_merging
+    - projection
+    - linear_to_kplane
+  geometries: []
+  schedules: []
+  severities:
+    - moderate
+    - strong
+  noises:
+    - 0.0

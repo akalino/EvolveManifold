@@ -1,0 +1,31 @@
+name: ot_primary_adjacent
+description: "Primary adjacent GW tracing with random landmarks."
+
+checkpoint_root: "${EVOLVE_ROOT}/evolve_checkpoints/collapse_ph"
+output_root: "${EVOLVE_ROOT}/gw_outputs/ot_primary_adjacent_L256"
+
+worker_script: "compute_subsample_gw_trajectory.py"
+
+mode: adjacent
+ot_method: entropic_gw
+landmark_method: random
+
+n_landmarks: 256
+epsilon: 0.5
+seed: 17
+normalize: start_median
+max_iter: 1000
+tol: 1.0e-6
+
+workers: 20
+blas_threads: 1
+overwrite: false
+
+limit_runs: null
+
+filters:
+  mechanisms: []
+  geometries: []
+  schedules: []
+  severities: []
+  noises: []

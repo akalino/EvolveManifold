@@ -1,0 +1,31 @@
+name: ot_smoke
+description: "Small OT smoke test before full GW tracing."
+
+checkpoint_root: "${EVOLVE_ROOT}/evolve_checkpoints/collapse_ph"
+output_root: "${EVOLVE_ROOT}/gw_outputs/ot_smoke"
+
+worker_script: "compute_subsample_gw_trajectory.py"
+
+mode: adjacent
+ot_method: entropic_gw
+landmark_method: random
+
+n_landmarks: 128
+epsilon: 0.5
+seed: 17
+normalize: start_median
+max_iter: 1000
+tol: 1.0e-6
+
+workers: 20
+blas_threads: 1
+overwrite: true
+
+limit_runs: 3
+
+filters:
+  mechanisms: []
+  geometries: []
+  schedules: []
+  severities: []
+  noises: []

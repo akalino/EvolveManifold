@@ -31,6 +31,10 @@ from metrics import (
     betti_curve_peak,
     betti_curve_change,
 )
+try:
+    from ph_workflow_alt import PHWorkflow
+except ImportError:
+    from ph_workflow import PHWorkflow
 from ph_workflow import PHWorkflow
 from projectors import (
     proj_to_k_plane,
@@ -46,6 +50,30 @@ os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
 
 DEFAULT_CONFIG_PATH = "configs/tranches/primary_d50.json"
 
+VR_PH_MODES = [
+    "full_vr",
+    "landmark_vr",
+    "skip_vr",
+    "fixed_support_vr",
+    "fixed_knn_vr",
+    "event_driven",
+    "online_landmark_event",
+    "online_landmark_dynamic_support",
+]
+
+DTM_PH_MODES = [
+    "full_dtm",
+    "landmark_dtm",
+    "skip_dtm",
+    "fixed_support_dtm",
+    "fixed_knn_dtm",
+    "event_driven_dtm",
+    "online_landmark_dtm_event",
+    "online_landmark_dtm_dynamic_support",
+    "online_landmark_dynamic_support_dtm",
+]
+
+ALL_PH_MODES = VR_PH_MODES + DTM_PH_MODES
 
 def expand_user_vars(value: str) -> str:
     """Expand environment variables and user markers in a path string.
@@ -227,6 +255,26 @@ def get_memory_mb() -> float:
 def safe_getattr(obj: Any, name: str, default: Any = None) -> Any:
     return getattr(obj, name, default)
 
+def len_or_none(value: Any) -> Optional[int]:
+    """Return len(value), or None if value is missing or unsized."""
+    if value is None:
+        return None
+    try:
+        return int(len(value))
+    except TypeError:
+        return None
+
+
+def prefixed_numeric_dict(prefix: str, value: Any) -> Dict[str, Any]:
+    """Flatten a small diagnostic dictionary into prefixed scalar columns."""
+    if not isinstance(value, dict):
+        return {}
+    out: Dict[str, Any] = {}
+    for key, val in value.items():
+        if isinstance(val, (int, float, np.integer, np.floating, bool)) or val is None:
+            out[f"{prefix}{key}"] = None if val is None else float(val)
+    return out
+
 
 def pairwise_distance_summaries(x: np.ndarray, max_points: int = 1000, seed: int = 17) -> Dict[str, Any]:
     x = np.asarray(x)
@@ -389,6 +437,93 @@ def checkpoint_paths_for_run(run_dir: str | Path) -> List[Path]:
 
     return sorted(set(candidates), key=lambda p: epoch_from_checkpoint_path(p))
 
+    def measure_run(run_dir: str | Path, too_big: bool = False, ph_mode: str = "full_vr", dtm_k: int = 16,
+                    dtm_rule: str = "max") -> pd.DataFrame:
+        run_dir = Path(run_dir)
+        meta = metadata_from_run_dir(run_dir)
+        proj_fn = get_projection_fn(meta["mechanism"], meta["model"], meta.get("k"))
+        ckpt_paths = checkpoint_paths_from_manifest(run_dir)
+
+        if not ckpt_paths:
+            raise FileNotFoundError(f"No parquet or pickle checkpoints found for run: {run_dir}")
+
+        ph = PHWorkflow(
+            _mode=ph_mode,
+            _max_dim=1,
+            _sparse=0.2,
+            _too_big=too_big,
+            _n_landmarks=500,
+            _seed=17,
+            _skip_every=2,
+            _knn_k=24,
+            _event_thresh=0.01,
+            _event_max_skip=5,
+            _force_every=5,
+            _dtm_k=dtm_k,
+            _dtm_rule=dtm_rule,
+        )
+        betti_grid = None
+        betti_ref_curve_h1 = None
+
+        rows = []
+        print(f"Beginning checkpoint measurement: {run_dir}")
+        for ckpt_path in tqdm(ckpt_paths, desc=meta["model"]):
+            x, epoch = load_checkpoint(ckpt_path)
+
+            t0 = time.perf_counter()
+            dgms = ph.diagrams(x, epoch)
+            ph_time_sec = time.perf_counter() - t0
+            mem_mb = get_memory_mb()
+
+            dgm1 = dgms[1]
+            if betti_grid is None:
+                betti_grid = np.linspace(0.0, ph.max_edge_len, 200)
+                betti_ref_curve_h1 = betti_curve_from_diagram(dgm1, betti_grid)
+
+            geom_summaries = pairwise_distance_summaries(
+                x,
+                max_points=1000,
+                seed=meta.get("seed") or 17,
+            )
+
+            k_for_metric = int(meta.get("k") or parse_k_from_model(meta["model"]))
+            dtm_stats = prefixed_numeric_dict("", safe_getattr(ph, "last_dtm_stats", None))
+            dtm_diag = prefixed_numeric_dict("dtm_diag_", safe_getattr(ph, "last_dtm_diag", None))
+            row = {
+                **meta,
+                "epoch": int(epoch),
+                "checkpoint_path": str(ckpt_path),
+                "checkpoint_format": ckpt_path.suffix.lstrip("."),
+                "measured_at": utc_now_iso(),
+                "effective_rank": effective_rank(x),
+                "top_k_variance_fraction": top_k_variance_fraction(x, k_for_metric),
+                **geom_summaries,
+                "ph_support_edges": safe_getattr(ph, "last_support_edges", None),
+                "ph_num_support_edges": len_or_none(safe_getattr(ph, "support_edges", None)),
+                "ph_support_refresh": safe_getattr(ph, "last_support_refresh", None),
+                "ph_trigger": safe_getattr(ph, "last_trigger", None),
+                "ph_mode": ph_mode,
+                "ph_dtm_k": safe_getattr(ph, "dtm_k", None),
+                "ph_dtm_rule": safe_getattr(ph, "dtm_rule", None),
+                "ph_recomputed": ph.last_recomputed,
+                "ph_time_sec": ph_time_sec,
+                "ph_mem": mem_mb,
+                "ph_landmarks": ph.n_landmarks,
+                "ph_event_score": ph.last_event_score,
+                **dtm_stats,
+                **dtm_diag,
+                "total_persistence_h1": total_persistence_h1(dgm1),
+                "max_persistence_h1": max_persistence_h1(dgm1),
+                "top5_persistence_h1": top5_persistence_h1(dgm1),
+                "betti_curve_area_h1": betti_curve_area(dgm1, betti_grid),
+                "betti_curve_peak_h1": betti_curve_peak(dgm1, betti_grid),
+                "betti_curve_change_h1": betti_curve_change(dgm1, betti_ref_curve_h1, betti_grid),
+            }
+
+            row["projection_residual"] = projection_residual(x, proj_fn) if proj_fn is not None else None
+            rows.append(row)
+
+        return pd.DataFrame(rows)
 
 def measure_run(run_dir: str | Path, too_big: bool = False, ph_mode: str = "full_vr") -> pd.DataFrame:
     run_dir = Path(run_dir)
