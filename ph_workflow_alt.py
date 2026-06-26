@@ -666,6 +666,10 @@ class _VRPHWorkflow:
         self.support_edge_age = {}
         self.support_max_age = 3
 
+        self.last_support_edges = None
+        self.last_support_refresh = False
+        self.last_trigger = None
+
     def _fit_epoch1(self, _x):
         self.max_edge_len = compute_max_edge(_x, self.too_big)
 
@@ -1592,6 +1596,12 @@ class PHWorkflow(_VRPHWorkflow):
         )
         self.support_edges = edges
         self.support_n = _x_use.shape[0]
+        self.last_support_edges = edges
+        self.last_support_refresh = True
+        self.last_trigger = "full_dtm"
+        self.last_support_edges = self.support_edges
+        self.last_support_refresh = False
+        self.last_trigger = "fixed_dtm"
         self.edge_filt_prev = edge_filt
         self.vertex_filt_prev = vertex_filt
         return self._persistence_from_dtm_tree()
@@ -1666,6 +1676,9 @@ class PHWorkflow(_VRPHWorkflow):
 
         if not recompute:
             self.last_recomputed = False
+            self.last_support_edges = self.support_edges
+            self.last_support_refresh = False
+            self.last_trigger = "reuse"
             self.edge_filt_prev = edge_filt_new
             self.vertex_filt_prev = vertex_filt_new
             return self.prev_dgms
@@ -1679,6 +1692,9 @@ class PHWorkflow(_VRPHWorkflow):
         dgms = self._persistence_from_dtm_tree()
         self.last_recomputed = True
         self.last_force = _epoch
+        self.last_support_edges = self.support_edges
+        self.last_support_refresh = False
+        self.last_trigger = "event_recompute"
         self.edge_filt_prev = edge_filt_new
         self.vertex_filt_prev = vertex_filt_new
         return dgms
@@ -1743,6 +1759,9 @@ class PHWorkflow(_VRPHWorkflow):
             dgms = self._persistence_from_dtm_tree()
             self.last_recomputed = True
             self.last_force = _epoch
+            self.last_support_edges = self.support_edges
+            self.last_support_refresh = True
+            self.last_trigger = "initial"
             self.edge_filt_prev = edge_filt_new
             self.vertex_filt_prev = vertex_filt_new
             self.last_event_score = np.inf
@@ -1800,6 +1819,7 @@ class PHWorkflow(_VRPHWorkflow):
             )
             self.support_edges = pruned_edges
             self.support_n = _x_use.shape[0]
+            self.last_support_refresh = True
             self.simplex_tree, d_mat_curr, edge_filt_new, vertex_filt_new = (
                 self._build_dtm_simplex_tree_from_support(
                     _x_full,
@@ -1810,6 +1830,9 @@ class PHWorkflow(_VRPHWorkflow):
 
         if not recompute:
             self.last_recomputed = False
+            self.last_support_edges = self.support_edges
+            self.last_support_refresh = False
+            self.last_trigger = "reuse"
             self.edge_filt_prev = edge_filt_new
             self.vertex_filt_prev = vertex_filt_new
             return self.prev_dgms
@@ -1827,6 +1850,11 @@ class PHWorkflow(_VRPHWorkflow):
 
         self.last_recomputed = True
         self.last_force = _epoch
+        self.last_support_edges = self.support_edges
+        if self.last_support_refresh:
+            self.last_trigger = "support_refresh"
+        else:
+            self.last_trigger = "event_recompute"
         self.edge_filt_prev = edge_filt_new
         self.vertex_filt_prev = vertex_filt_new
         return dgms

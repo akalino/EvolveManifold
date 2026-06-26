@@ -31,7 +31,10 @@ from metrics import (
     betti_curve_peak,
     betti_curve_change,
 )
-from ph_workflow import PHWorkflow
+try:
+    from ph_workflow_alt import PHWorkflow
+except ImportError:
+    from ph_workflow import PHWorkflow
 from projectors import (
     proj_to_k_plane,
     proj_to_sphere,
@@ -46,6 +49,30 @@ os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
 
 DEFAULT_CONFIG_PATH = "configs/tranches/primary_d50.json"
 
+VR_PH_MODES = [
+    "full_vr",
+    "landmark_vr",
+    "skip_vr",
+    "fixed_support_vr",
+    "fixed_knn_vr",
+    "event_driven",
+    "online_landmark_event",
+    "online_landmark_dynamic_support",
+]
+
+DTM_PH_MODES = [
+    "full_dtm",
+    "landmark_dtm",
+    "skip_dtm",
+    "fixed_support_dtm",
+    "fixed_knn_dtm",
+    "event_driven_dtm",
+    "online_landmark_dtm_event",
+    "online_landmark_dtm_dynamic_support",
+    "online_landmark_dynamic_support_dtm",
+]
+
+ALL_PH_MODES = VR_PH_MODES + DTM_PH_MODES
 
 def expand_user_vars(value: str) -> str:
     """Expand environment variables and user markers in a path string.
@@ -227,6 +254,26 @@ def get_memory_mb() -> float:
 def safe_getattr(obj: Any, name: str, default: Any = None) -> Any:
     return getattr(obj, name, default)
 
+def len_or_none(value: Any) -> Optional[int]:
+    """Return len(value), or None if value is missing or unsized."""
+    if value is None:
+        return None
+    try:
+        return int(len(value))
+    except TypeError:
+        return None
+
+
+def prefixed_numeric_dict(prefix: str, value: Any) -> Dict[str, Any]:
+    """Flatten a small diagnostic dictionary into prefixed scalar columns."""
+    if not isinstance(value, dict):
+        return {}
+    out: Dict[str, Any] = {}
+    for key, val in value.items():
+        if isinstance(val, (int, float, np.integer, np.floating, bool)) or val is None:
+            out[f"{prefix}{key}"] = None if val is None else float(val)
+    return out
+
 
 def pairwise_distance_summaries(x: np.ndarray, max_points: int = 1000, seed: int = 17) -> Dict[str, Any]:
     x = np.asarray(x)
@@ -389,84 +436,93 @@ def checkpoint_paths_for_run(run_dir: str | Path) -> List[Path]:
 
     return sorted(set(candidates), key=lambda p: epoch_from_checkpoint_path(p))
 
+    def measure_run(run_dir: str | Path, too_big: bool = False, ph_mode: str = "full_vr", dtm_k: int = 16,
+                    dtm_rule: str = "max") -> pd.DataFrame:
+        run_dir = Path(run_dir)
+        meta = metadata_from_run_dir(run_dir)
+        proj_fn = get_projection_fn(meta["mechanism"], meta["model"], meta.get("k"))
+        ckpt_paths = checkpoint_paths_from_manifest(run_dir)
 
-def measure_run(run_dir: str | Path, too_big: bool = False, ph_mode: str = "full_vr") -> pd.DataFrame:
-    run_dir = Path(run_dir)
-    meta = metadata_from_run_dir(run_dir)
-    proj_fn = get_projection_fn(meta["mechanism"], meta["model"], meta.get("k"))
-    ckpt_paths = checkpoint_paths_from_manifest(run_dir)
+        if not ckpt_paths:
+            raise FileNotFoundError(f"No parquet or pickle checkpoints found for run: {run_dir}")
 
-    if not ckpt_paths:
-        raise FileNotFoundError(f"No parquet or pickle checkpoints found for run: {run_dir}")
-
-    ph = PHWorkflow(
-        _mode=ph_mode,
-        _max_dim=1,
-        _sparse=0.2,
-        _too_big=too_big,
-        _n_landmarks=500,
-        _seed=17,
-        _skip_every=2,
-        _knn_k=24,
-        _event_thresh=0.01,
-        _event_max_skip=5,
-        _force_every=5,
-    )
-    betti_grid = None
-    betti_ref_curve_h1 = None
-
-    rows = []
-    print(f"Beginning checkpoint measurement: {run_dir}")
-    for ckpt_path in tqdm(ckpt_paths, desc=meta["model"]):
-        x, epoch = load_checkpoint(ckpt_path)
-
-        t0 = time.perf_counter()
-        dgms = ph.diagrams(x, epoch)
-        ph_time_sec = time.perf_counter() - t0
-        mem_mb = get_memory_mb()
-
-        dgm1 = dgms[1]
-        if betti_grid is None:
-            betti_grid = np.linspace(0.0, ph.max_edge_len, 200)
-            betti_ref_curve_h1 = betti_curve_from_diagram(dgm1, betti_grid)
-
-        geom_summaries = pairwise_distance_summaries(
-            x,
-            max_points=1000,
-            seed=meta.get("seed") or 17,
+        ph = PHWorkflow(
+            _mode=ph_mode,
+            _max_dim=1,
+            _sparse=0.2,
+            _too_big=too_big,
+            _n_landmarks=500,
+            _seed=17,
+            _skip_every=2,
+            _knn_k=24,
+            _event_thresh=0.01,
+            _event_max_skip=5,
+            _force_every=5,
+            _dtm_k=dtm_k,
+            _dtm_rule=dtm_rule,
         )
+        betti_grid = None
+        betti_ref_curve_h1 = None
 
-        k_for_metric = int(meta.get("k") or parse_k_from_model(meta["model"]))
-        row = {
-            **meta,
-            "epoch": int(epoch),
-            "checkpoint_path": str(ckpt_path),
-            "checkpoint_format": ckpt_path.suffix.lstrip("."),
-            "measured_at": utc_now_iso(),
-            "effective_rank": effective_rank(x),
-            "top_k_variance_fraction": top_k_variance_fraction(x, k_for_metric),
-            **geom_summaries,
-            "ph_support_edges": safe_getattr(ph, "last_support_edges", None),
-            "ph_support_refresh": safe_getattr(ph, "last_support_refresh", None),
-            "ph_trigger": safe_getattr(ph, "last_trigger", None),
-            "ph_mode": ph_mode,
-            "ph_recomputed": ph.last_recomputed,
-            "ph_time_sec": ph_time_sec,
-            "ph_mem": mem_mb,
-            "ph_landmarks": ph.n_landmarks,
-            "ph_event_score": ph.last_event_score,
-            "total_persistence_h1": total_persistence_h1(dgm1),
-            "max_persistence_h1": max_persistence_h1(dgm1),
-            "top5_persistence_h1": top5_persistence_h1(dgm1),
-            "betti_curve_area_h1": betti_curve_area(dgm1, betti_grid),
-            "betti_curve_peak_h1": betti_curve_peak(dgm1, betti_grid),
-            "betti_curve_change_h1": betti_curve_change(dgm1, betti_ref_curve_h1, betti_grid),
-        }
+        rows = []
+        print(f"Beginning checkpoint measurement: {run_dir}")
+        for ckpt_path in tqdm(ckpt_paths, desc=meta["model"]):
+            x, epoch = load_checkpoint(ckpt_path)
 
-        row["projection_residual"] = projection_residual(x, proj_fn) if proj_fn is not None else None
-        rows.append(row)
+            t0 = time.perf_counter()
+            dgms = ph.diagrams(x, epoch)
+            ph_time_sec = time.perf_counter() - t0
+            mem_mb = get_memory_mb()
 
-    return pd.DataFrame(rows)
+            dgm1 = dgms[1]
+            if betti_grid is None:
+                betti_grid = np.linspace(0.0, ph.max_edge_len, 200)
+                betti_ref_curve_h1 = betti_curve_from_diagram(dgm1, betti_grid)
+
+            geom_summaries = pairwise_distance_summaries(
+                x,
+                max_points=1000,
+                seed=meta.get("seed") or 17,
+            )
+
+            k_for_metric = int(meta.get("k") or parse_k_from_model(meta["model"]))
+            dtm_stats = prefixed_numeric_dict("", safe_getattr(ph, "last_dtm_stats", None))
+            dtm_diag = prefixed_numeric_dict("dtm_diag_", safe_getattr(ph, "last_dtm_diag", None))
+            row = {
+                **meta,
+                "epoch": int(epoch),
+                "checkpoint_path": str(ckpt_path),
+                "checkpoint_format": ckpt_path.suffix.lstrip("."),
+                "measured_at": utc_now_iso(),
+                "effective_rank": effective_rank(x),
+                "top_k_variance_fraction": top_k_variance_fraction(x, k_for_metric),
+                **geom_summaries,
+                "ph_support_edges": safe_getattr(ph, "last_support_edges", None),
+                "ph_num_support_edges": len_or_none(safe_getattr(ph, "support_edges", None)),
+                "ph_support_refresh": safe_getattr(ph, "last_support_refresh", None),
+                "ph_trigger": safe_getattr(ph, "last_trigger", None),
+                "ph_mode": ph_mode,
+                "ph_dtm_k": safe_getattr(ph, "dtm_k", None),
+                "ph_dtm_rule": safe_getattr(ph, "dtm_rule", None),
+                "ph_recomputed": ph.last_recomputed,
+                "ph_time_sec": ph_time_sec,
+                "ph_mem": mem_mb,
+                "ph_landmarks": ph.n_landmarks,
+                "ph_event_score": ph.last_event_score,
+                **dtm_stats,
+                **dtm_diag,
+                "total_persistence_h1": total_persistence_h1(dgm1),
+                "max_persistence_h1": max_persistence_h1(dgm1),
+                "top5_persistence_h1": top5_persistence_h1(dgm1),
+                "betti_curve_area_h1": betti_curve_area(dgm1, betti_grid),
+                "betti_curve_peak_h1": betti_curve_peak(dgm1, betti_grid),
+                "betti_curve_change_h1": betti_curve_change(dgm1, betti_ref_curve_h1, betti_grid),
+            }
+
+            row["projection_residual"] = projection_residual(x, proj_fn) if proj_fn is not None else None
+            rows.append(row)
+
+        return pd.DataFrame(rows)
 
 
 def clean_name(s: Any) -> str:
@@ -609,8 +665,8 @@ def find_run_dirs(root_dir: str | Path, include_incomplete: bool = False) -> Lis
     return sorted(set(run_dirs), key=lambda p: str(p))
 
 
-def measure_one_run_task(args: Tuple[str, str, str, bool, bool]) -> Dict[str, Any]:
-    run_dir_s, out_root_s, ph_mode, overwrite, write_csv = args
+def measure_one_run_task(args: Tuple[str, str, str, bool, bool, int, str]) -> Dict[str, Any]:
+    run_dir_s, out_root_s, ph_mode, overwrite, write_csv, dtm_k, dtm_rule = args
     run_dir = Path(run_dir_s)
     paths = output_paths_for_run(run_dir, out_root_s, ph_mode)
     measurement_manifest = read_json_if_exists(paths["manifest"])
@@ -645,7 +701,7 @@ def measure_one_run_task(args: Tuple[str, str, str, bool, bool]) -> Dict[str, An
     try:
         print(f"Starting measurement: {paths['metrics_parquet']}")
         too_big = should_use_too_big(run_dir)
-        df_run = measure_run(run_dir, too_big=too_big, ph_mode=ph_mode)
+        df_run = measure_run(run_dir, too_big=too_big, ph_mode=ph_mode, dtm_k=dtm_k, dtm_rule=dtm_rule)
         atomic_write_parquet(df_run, paths["metrics_parquet"])
         if write_csv:
             atomic_write_csv(df_run, paths["metrics_csv"])
@@ -697,7 +753,6 @@ def measure_one_run_task(args: Tuple[str, str, str, bool, bool]) -> Dict[str, An
             "updated_at": failed_at,
         }
 
-
 def combine_metric_outputs(results_df: pd.DataFrame, out_root: str | Path, ph_mode: str, write_csv: bool) -> None:
     parquet_paths = [p for p in results_df.get("metrics_parquet", pd.Series(dtype=str)).dropna().tolist() if Path(p).exists()]
     frames = []
@@ -736,6 +791,8 @@ def main(
     allow_old_media: bool = False,
     tranche: str = "all",
     config_path: Optional[str] = None,
+    dtm_k: int = 16,
+    dtm_rule: str = "max",
 ) -> None:
     config = load_config(config_path) if config_path else {}
     paths = resolve_path_config(config) if config else default_path_config()
@@ -758,9 +815,12 @@ def main(
     print(f"[INFO] tranche={tranche}")
     print(f"[INFO] selected {len(run_dirs)} run directories")
     print(f"[INFO] ph_mode={ph_mode}")
+    if "dtm" in ph_mode:
+        print(f"[INFO] dtm_k={dtm_k}")
+        print(f"[INFO] dtm_rule={dtm_rule}")
     print(f"[INFO] workers={workers}")
 
-    tasks = [(str(run_dir), out_dir, ph_mode, overwrite, write_csv) for run_dir in run_dirs]
+    tasks = [(str(run_dir), out_dir, ph_mode, overwrite, write_csv, dtm_k, dtm_rule) for run_dir in run_dirs]
     results: List[Dict[str, Any]] = []
 
     if workers <= 1:
@@ -789,6 +849,8 @@ def main(
         "ph_mode": ph_mode,
         "tranche": tranche,
         "workers": workers,
+        "dtm_k": dtm_k if "dtm" in ph_mode else None,
+        "dtm_rule": dtm_rule if "dtm" in ph_mode else None,
         "num_runs": int(len(results_df)),
         "status_counts": results_df["status"].value_counts().to_dict() if len(results_df) else {},
     })
@@ -823,6 +885,7 @@ if __name__ == "__main__":
             "event_driven",
             "online_landmark_event",
             "online_landmark_dynamic_support",
+            "online_landmark_dtm_dynamic_support",
         ],
         help="Persistent homology workflow mode.",
     )
@@ -836,6 +899,13 @@ if __name__ == "__main__":
     parser.add_argument("--overwrite", action="store_true", help="Overwrite completed metric outputs for matching runs.")
     parser.add_argument("--no-csv", action="store_true", help="Only write parquet outputs, not CSV copies.")
     parser.add_argument("--allow-old-media", action="store_true", help="Allow paths under /media/alex/WD_BLACK for legacy recovery only.")
+    parser.add_argument("--dtm-k", type=int, default=16, help="DTM neighbor count for DTM PH modes.")
+    parser.add_argument(
+        "--dtm-rule",
+        default="max",
+        choices=["max", "sqrt_sum", "additive", "dtm_only"],
+        help="DTM edge-filtration rule for DTM PH modes.",
+    )
     args = parser.parse_args()
 
     main(
@@ -849,4 +919,6 @@ if __name__ == "__main__":
         allow_old_media=args.allow_old_media,
         tranche=args.tranche,
         config_path=args.config,
+        dtm_k=args.dtm_k,
+        dtm_rule=args.dtm_rule
     )
